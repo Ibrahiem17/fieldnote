@@ -108,5 +108,6 @@ common columns (every table above except outbox):
 - [`docs/DESIGN.md`](docs/DESIGN.md) — every decision that had a real alternative, and why it went the way it did
 - [`docs/UNDERSTANDING.md`](docs/UNDERSTANDING.md) — what the app does, in plain words, no code
 - [`docs/BABY.md`](docs/BABY.md) — every meaningful line of code, explained symbol by symbol
-- [`CLAUDE.md`](CLAUDE.md) — the rules this codebase follows
 - [`docs/TEST-RESULTS-PHASE-1.md`](docs/TEST-RESULTS-PHASE-1.md) — the formal Phase 1 test pass
+
+(`CLAUDE.md` — the coding-agent rules file — is kept locally, not in this repo.)
