@@ -40,7 +40,7 @@ yarn-error.*
 /ios
 /android
 
-# Claude Code / agent tooling — not part of the app
+# Local dev-tooling config and notes — not part of the shipped app
 .claude/
 CLAUDE.md
 AGENTS.md

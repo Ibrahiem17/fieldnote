@@ -4,7 +4,7 @@
 // Drizzle so the rest of the app talks to it through typed queries instead
 // of raw SQL strings. Every repository imports `db` from here — nothing
 // outside this file (and the repositories) should import `expo-sqlite`
-// directly (Section 2.8, and enforced as a rule in CLAUDE.md).
+// directly (Section 2.8, and enforced as a project rule).
 
 import { openDatabaseSync } from "expo-sqlite";
 import { drizzle } from "drizzle-orm/expo-sqlite";

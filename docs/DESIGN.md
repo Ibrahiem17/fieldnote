@@ -21,7 +21,7 @@ SQLite (fieldnote.db, on-device)
                                    Sync engine → Supabase
 ```
 
-Every screen goes through a repository; every repository goes through Drizzle; nothing talks to SQLite directly except Drizzle itself. This is enforced as a rule in `CLAUDE.md`, not just a convention — see decision D-004.
+Every screen goes through a repository; every repository goes through Drizzle; nothing talks to SQLite directly except Drizzle itself. This is enforced as a project rule, not just a convention — see decision D-004.
 
 ## Decision log
 

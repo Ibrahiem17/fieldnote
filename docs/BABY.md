@@ -1,6 +1,6 @@
 # Baby Steps — Fieldnote, line by line
 
-Every meaningful piece of code in the project, explained one symbol at a time, assuming zero prior programming knowledge. Real code only, copied from the actual files — never a made-up example. This is a living document: as more code gets written, more of it gets explained here. If you (Muhammad) ever read a line in this project you can't follow, that line is missing from this file — add it before moving on (see the documentation protocol in `CLAUDE.md`).
+Every meaningful piece of code in the project, explained one symbol at a time, assuming zero prior programming knowledge. Real code only, copied from the actual files — never a made-up example. This is a living document: as more code gets written, more of it gets explained here. If you (Muhammad) ever read a line in this project you can't follow, that line is missing from this file — add it before moving on (see the project's documentation protocol).
 
 ---
 
