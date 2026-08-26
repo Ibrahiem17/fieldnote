@@ -1,60 +1,60 @@
 # Phase 1 Test Results
 
-Test cases as defined in Section 6.2 of `docs/Fieldnote_Phase_1_Plan.md`. Per Section 6.2.6: a failing test isn't a disaster, an *unrecorded* one is — so every row below is either a real result or honestly marked as not yet run, never left blank.
+Test cases as defined in Section 6.2 of `docs/Fieldnote_Phase_1_Plan.md`. Per Section 6.2.6: a failing test isn't a disaster, an _unrecorded_ one is — so every row below is either a real result or honestly marked as not yet run, never left blank.
 
 **Status as of 2026-08-25:** code complete for Phase 1's scope; verified by typecheck, lint and a Metro/web bundle boot in a sandboxed dev environment with no Android Studio or physical device available. The device-dependent test cases below (the majority of them — this is a mobile app) still need a real pass on a physical phone or emulator before Phase 1 can be marked done, per Section 0.6.5 of the plan.
 
 ## 6.2.1 Setup and build
 
-| ID | Steps | Expected result | Result | Notes |
-|---|---|---|---|---|
+| ID    | Steps                                              | Expected result                             | Result          | Notes                                                                                                                |
+| ----- | -------------------------------------------------- | ------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------- |
 | TC-01 | Install the dev build on a physical phone, open it | App launches, no crash, no red error screen | **Not yet run** | Needs `eas build --profile development --platform android` and a physical device — not available in this environment |
-| TC-02 | Open the app on the emulator | Same behaviour as on the phone | **Not yet run** | Needs Android Studio / emulator, not available in this environment |
-| TC-03 | Change a line of text in a screen, save | Hot reload updates within ~2 seconds | **Not yet run** | Requires a running emulator/device session |
-| TC-04 | Run `npx tsc --noEmit` | Zero errors | **Pass** | Verified directly; zero errors across the whole project |
+| TC-02 | Open the app on the emulator                       | Same behaviour as on the phone              | **Not yet run** | Needs Android Studio / emulator, not available in this environment                                                   |
+| TC-03 | Change a line of text in a screen, save            | Hot reload updates within ~2 seconds        | **Not yet run** | Requires a running emulator/device session                                                                           |
+| TC-04 | Run `npx tsc --noEmit`                             | Zero errors                                 | **Pass**        | Verified directly; zero errors across the whole project                                                              |
 
 ## 6.2.2 Navigation and theme
 
-| ID | Steps | Expected result | Result | Notes |
-|---|---|---|---|---|
-| TC-05 | Tap each of the three tabs | Correct screen each time; tab highlights | **Not yet run** | Needs a real navigation session on device/emulator |
-| TC-06 | Open a project, then press back | Returns to the Projects list, not a blank screen | **Not yet run** | — |
-| TC-07 | Set the phone to dark mode with the app open | Colours change; text stays readable | **Not yet run** | `ThemeProvider` + `tokens.ts` are implemented and typecheck correctly for both palettes; needs a visual check on device |
-| TC-08 | Rotate the phone | Layout doesn't overlap or clip | **Not yet run** | — |
+| ID    | Steps                                        | Expected result                                  | Result          | Notes                                                                                                                   |
+| ----- | -------------------------------------------- | ------------------------------------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| TC-05 | Tap each of the three tabs                   | Correct screen each time; tab highlights         | **Not yet run** | Needs a real navigation session on device/emulator                                                                      |
+| TC-06 | Open a project, then press back              | Returns to the Projects list, not a blank screen | **Not yet run** | —                                                                                                                       |
+| TC-07 | Set the phone to dark mode with the app open | Colours change; text stays readable              | **Not yet run** | `ThemeProvider` + `tokens.ts` are implemented and typecheck correctly for both palettes; needs a visual check on device |
+| TC-08 | Rotate the phone                             | Layout doesn't overlap or clip                   | **Not yet run** | —                                                                                                                       |
 
 ## 6.2.3 Database and migrations
 
-| ID | Steps | Expected result | Result | Notes |
-|---|---|---|---|---|
-| TC-09 | Delete the app, reinstall, open it | Migrations run, app opens to an empty state, no crash | **Not yet run** | Needs a device install |
-| TC-10 | Seed data, then install a build containing migration `0001` over the top | Previously seeded rows survive | **Not yet run** | Only migration `0000_init` exists so far — a second migration (e.g. adding a column) hasn't been created yet; Section 3.4.4 calls for proving this specifically |
-| TC-11 | Inspect the database; list its tables | All six tables present | **Pass (statically)** | Confirmed from the generated `drizzle/0000_init.sql`: `projects`, `templates`, `inspections`, `answers`, `attachments`, `outbox` all present with the exact columns in Section 4 of the plan. Not yet confirmed against a live on-device database file. |
+| ID    | Steps                                                                    | Expected result                                       | Result                | Notes                                                                                                                                                                                                                                                                                                                                                                            |
+| ----- | ------------------------------------------------------------------------ | ----------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-09 | Delete the app, reinstall, open it                                       | Migrations run, app opens to an empty state, no crash | **Not yet run**       | Needs a device install                                                                                                                                                                                                                                                                                                                                                           |
+| TC-10 | Seed data, then install a build containing migration `0001` over the top | Previously seeded rows survive                        | **Not yet run**       | A second migration now exists — `drizzle/0001_add_project_notes.sql`, adding a nullable `projects.notes` column (D-007 in `docs/DESIGN.md`) — so the code side of this test case is ready. The actual check (seed on a device, install the `0001` build over it, confirm rows survived) still needs that device; the migration existing is not the same as it being proven safe. |
+| TC-11 | Inspect the database; list its tables                                    | All six tables present                                | **Pass (statically)** | Confirmed from the generated `drizzle/0000_init.sql`: `projects`, `templates`, `inspections`, `answers`, `attachments`, `outbox` all present with the exact columns in Section 4 of the plan. Not yet confirmed against a live on-device database file.                                                                                                                          |
 
 ## 6.2.4 Offline CRUD — the core of the phase
 
-| ID | Steps | Expected result | Result | Notes |
-|---|---|---|---|---|
+| ID    | Steps                               | Expected result                             | Result          | Notes                                                                                                                                                                                                                                                                                      |
+| ----- | ----------------------------------- | ------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | TC-12 | Airplane mode. Create an inspection | Saves without error; appears at top of list | **Not yet run** | `createInspection()` is implemented per the Section 5.1 contract and typechecks; not yet exercised on device. Note: nothing in the repository layer makes any network call at all in Phase 1, so airplane mode specifically shouldn't matter — but the formal check still needs to happen. |
-| TC-13 | Still offline: edit the title | New title shows in detail and list | **Not yet run** | — |
-| TC-14 | Still offline: delete it, confirm | Disappears from the list | **Not yet run** | — |
-| TC-15 | Inspect the deleted row | Row still exists, `deleted_at` set | **Not yet run** | `softDeleteInspection()` sets `deletedAt`/`updatedAt` and never runs a SQL `DELETE` — confirmed by reading the code; not yet confirmed against a live row |
-| TC-16 | Force-quit, reopen (still offline) | All data exactly as left | **Not yet run** | — |
-| TC-17 | Check `outbox` after TC-12/13/14 | Exactly 3 rows: insert, update, delete | **Not yet run** | Settings screen shows a live outbox row count for this; needs the on-device walkthrough |
-| TC-18 | Turn airplane mode off | Nothing breaks, nothing uploads | **Not yet run** | Correct by construction — no sync engine exists yet in Phase 1 — but not yet observed |
+| TC-13 | Still offline: edit the title       | New title shows in detail and list          | **Not yet run** | —                                                                                                                                                                                                                                                                                          |
+| TC-14 | Still offline: delete it, confirm   | Disappears from the list                    | **Not yet run** | —                                                                                                                                                                                                                                                                                          |
+| TC-15 | Inspect the deleted row             | Row still exists, `deleted_at` set          | **Not yet run** | `softDeleteInspection()` sets `deletedAt`/`updatedAt` and never runs a SQL `DELETE` — confirmed by reading the code; not yet confirmed against a live row                                                                                                                                  |
+| TC-16 | Force-quit, reopen (still offline)  | All data exactly as left                    | **Not yet run** | —                                                                                                                                                                                                                                                                                          |
+| TC-17 | Check `outbox` after TC-12/13/14    | Exactly 3 rows: insert, update, delete      | **Not yet run** | Settings screen shows a live outbox row count for this; needs the on-device walkthrough                                                                                                                                                                                                    |
+| TC-18 | Turn airplane mode off              | Nothing breaks, nothing uploads             | **Not yet run** | Correct by construction — no sync engine exists yet in Phase 1 — but not yet observed                                                                                                                                                                                                      |
 
 ## 6.2.5 Lists and edge cases
 
-| ID | Steps | Expected result | Result | Notes |
-|---|---|---|---|---|
-| TC-19 | Seed 500 inspections, scroll fast | Smooth scrolling, no blank rows | **Not yet run** | FlashList is wired in; real-device scroll performance can't be measured outside a device |
-| TC-20 | Filter by a project | Only that project's inspections show | **Not yet run** | Filter UI implemented in `src/app/(tabs)/inspections.tsx`; not yet exercised |
-| TC-21 | Filter by a status with no matches | Empty state, not a blank screen | **Not yet run** | `EmptyState` component wired to every list's `ListEmptyComponent` |
-| TC-22 | Reset database, open Inspections list | Empty state with clear message | **Not yet run** | — |
-| TC-23 | Create an inspection with an empty title | Blocked with a clear message, never a crash | **Not yet run** | `new.tsx` blocks with `setTitleError("Title is required.")` before calling the repository; confirmed by reading the code, not yet clicked through |
-| TC-24 | Create an inspection with a 200+ character title | Text wraps or truncates, layout doesn't break | **Not yet run** | Title `Input`/`Text` components have no length cap and use normal text wrapping; not yet visually confirmed |
+| ID    | Steps                                            | Expected result                               | Result          | Notes                                                                                                                                             |
+| ----- | ------------------------------------------------ | --------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-19 | Seed 500 inspections, scroll fast                | Smooth scrolling, no blank rows               | **Not yet run** | FlashList is wired in; real-device scroll performance can't be measured outside a device                                                          |
+| TC-20 | Filter by a project                              | Only that project's inspections show          | **Not yet run** | Filter UI implemented in `src/app/(tabs)/inspections.tsx`; not yet exercised                                                                      |
+| TC-21 | Filter by a status with no matches               | Empty state, not a blank screen               | **Not yet run** | `EmptyState` component wired to every list's `ListEmptyComponent`                                                                                 |
+| TC-22 | Reset database, open Inspections list            | Empty state with clear message                | **Not yet run** | —                                                                                                                                                 |
+| TC-23 | Create an inspection with an empty title         | Blocked with a clear message, never a crash   | **Not yet run** | `new.tsx` blocks with `setTitleError("Title is required.")` before calling the repository; confirmed by reading the code, not yet clicked through |
+| TC-24 | Create an inspection with a 200+ character title | Text wraps or truncates, layout doesn't break | **Not yet run** | Title `Input`/`Text` components have no length cap and use normal text wrapping; not yet visually confirmed                                       |
 
 ## Known issues carried into the next session
 
 1. No physical device or emulator available in the environment this Phase 1 build was written in — every device-dependent row above needs a real pass before Phase 1 can be called done.
-2. Only one migration exists (`0000_init`). TC-10 specifically requires generating and applying a *second* migration against a database that already has rows in it, to prove upgrades don't destroy data (Section 3.4.4) — this hasn't been done yet.
+2. A second migration (`0001_add_project_notes`) now exists, generated via `npm run db:generate`. What Section 3.4.4 actually requires — installing it over a device that already has real seeded data and confirming nothing was lost — still hasn't been done; that's the remaining, device-dependent half of TC-10.
 3. EAS project not yet initialized (`eas init`) — needed before `eas build` can run at all.

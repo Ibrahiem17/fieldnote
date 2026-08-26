@@ -46,6 +46,11 @@ export const projects = sqliteTable("projects", {
   address: text("address"),
   latitude: integer("latitude", { mode: "number" }),
   longitude: integer("longitude", { mode: "number" }),
+  // Added in migration 0001 (Section 3.4.4 of the Phase 1 plan) — proof
+  // that a schema change after real rows exist doesn't destroy them.
+  // Nullable so every row seeded before this migration existed still
+  // satisfies the schema with no backfill needed.
+  notes: text("notes"),
 });
 
 // ---------------------------------------------------------------------------

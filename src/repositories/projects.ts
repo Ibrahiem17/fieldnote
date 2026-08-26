@@ -13,7 +13,7 @@ import { now } from "@/lib/time";
 import { appendOutboxEntry } from "./outbox";
 
 export type NewProjectInput = Pick<NewProject, "name" | "clientName" | "address"> &
-  Partial<Pick<NewProject, "latitude" | "longitude">>;
+  Partial<Pick<NewProject, "latitude" | "longitude" | "notes">>;
 
 /** Every project not soft-deleted, newest-updated first. */
 export async function listProjects(): Promise<Project[]> {
@@ -44,6 +44,7 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
     address: input.address ?? null,
     latitude: input.latitude ?? null,
     longitude: input.longitude ?? null,
+    notes: input.notes ?? null,
   };
 
   // Section 5.2: the row write and its outbox note happen in one

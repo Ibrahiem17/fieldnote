@@ -8,7 +8,7 @@ An app for people whose job is to inspect things — buildings, sites, equipment
 
 **What it is:** SQLite is a small, complete database living inside the app on the phone — like a filing cabinet the app carries around in its own backpack, rather than one it has to phone up a distant office and ask about.
 
-**Why:** the inspector has no internet. If the app had to ask a server for every screen's data, it wouldn't work at all in the field. So the phone holds the *real* copy of the data; a server copy comes later, in Phase 3.
+**Why:** the inspector has no internet. If the app had to ask a server for every screen's data, it wouldn't work at all in the field. So the phone holds the _real_ copy of the data; a server copy comes later, in Phase 3.
 
 **Why not just a box of saved settings (AsyncStorage):** that's fine for "dark mode: on," but useless for "show me every incomplete inspection for this project, newest first." Real questions like that need a real database that can filter and sort, not a pile of sticky notes.
 
@@ -45,6 +45,14 @@ An app for people whose job is to inspect things — buildings, sites, equipment
 ## Why light and dark mode both matter from day one
 
 **Plain words:** the phone's system setting can be light or dark, and the app has to look correct — readable text, no white writing hiding on a white background — in both, because the user's phone might be in either at any moment. Building both from the start (one file of colours, per Section — `tokens.ts`) means there's never a scramble later to retrofit a second look onto components that only ever expected one.
+
+## The second migration — proving an upgrade doesn't erase anything
+
+**Plain words:** the first migration built the database's tables from nothing — easy, because there was nothing there to lose. The real test is the _second_ migration: adding a new field (a `notes` field on projects) to an app that a device already has real, seeded data sitting inside. If that upgrade were done wrong, it could wipe the table clean and start over, silently deleting every project and inspection an inspector had already saved.
+
+**What was actually done:** the new field was added in a way that doesn't demand anything from rows that existed before it — it's allowed to simply be empty for them, rather than requiring every old row be rewritten with a value it never had. That's _why_ it's allowed to be empty: it's the difference between "grow the filing cabinet by adding a drawer" and "empty the whole cabinet onto the floor and refile everything."
+
+**Being honest about what's not yet confirmed:** having the growing-a-drawer _kind_ of migration is not the same as having _proven_, on a real phone, that a device with real saved data survives having this update installed over it. That check still needs an actual device — it's recorded as still outstanding in `docs/TEST-RESULTS-PHASE-1.md` rather than assumed to be fine because the code looks right.
 
 ## What Phase 1 deliberately does not do
 

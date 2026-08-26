@@ -62,6 +62,7 @@ export default function ProjectDetailScreen() {
             {project.address}
           </Text>
         ) : null}
+        {project?.notes ? <Text>{project.notes}</Text> : null}
         <Button
           label="New Inspection for this project"
           onPress={() => router.push({ pathname: "/inspections/new", params: { projectId: id } })}
