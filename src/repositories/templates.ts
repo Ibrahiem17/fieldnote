@@ -6,14 +6,19 @@
 
 import { and, eq, isNull } from "drizzle-orm";
 
-import { db } from "@/db/client";
+import { isDbAvailable, requireDb } from "@/db/client";
 import { templates, type Template } from "@/db/schema";
+import * as mock from "@/db/mockStore";
 
 export async function listTemplates(): Promise<Template[]> {
+  if (!isDbAvailable()) return mock.listTemplates();
+  const db = requireDb();
   return db.select().from(templates).where(isNull(templates.deletedAt));
 }
 
 export async function getTemplate(id: string): Promise<Template | null> {
+  if (!isDbAvailable()) return mock.getTemplate(id);
+  const db = requireDb();
   const rows = await db
     .select()
     .from(templates)

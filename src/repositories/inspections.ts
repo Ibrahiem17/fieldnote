@@ -7,7 +7,7 @@
 
 import { and, desc, eq, isNull } from "drizzle-orm";
 
-import { db } from "@/db/client";
+import { isDbAvailable, requireDb } from "@/db/client";
 import {
   inspections,
   type Inspection,
@@ -17,6 +17,7 @@ import {
 import { newId } from "@/lib/id";
 import { now } from "@/lib/time";
 import { appendOutboxEntry } from "./outbox";
+import * as mock from "@/db/mockStore";
 
 export type NewInspectionInput = Pick<NewInspection, "projectId" | "title"> &
   Partial<Pick<NewInspection, "templateId" | "inspectorName" | "notes">>;
@@ -32,6 +33,13 @@ export type InspectionFilter = {
  * argument optional, so `listInspections()` with nothing works too.
  */
 export async function listInspections(filter?: InspectionFilter): Promise<Inspection[]> {
+  // Preview mode (docs/DESIGN.md D-013): the real database couldn't open
+  // (confirmed browser limitation, D-010) — every read/create/edit/delete
+  // in this file falls back to an in-memory store instead, so the actual
+  // screens still have something real to render.
+  if (!isDbAvailable()) return mock.listInspections(filter);
+  const db = requireDb();
+
   const conditions = [isNull(inspections.deletedAt)];
   if (filter?.projectId) {
     conditions.push(eq(inspections.projectId, filter.projectId));
@@ -48,6 +56,8 @@ export async function listInspections(filter?: InspectionFilter): Promise<Inspec
 }
 
 export async function getInspection(id: string): Promise<Inspection | null> {
+  if (!isDbAvailable()) return mock.getInspection(id);
+  const db = requireDb();
   const rows = await db
     .select()
     .from(inspections)
@@ -56,6 +66,9 @@ export async function getInspection(id: string): Promise<Inspection | null> {
 }
 
 export async function createInspection(input: NewInspectionInput): Promise<Inspection> {
+  if (!isDbAvailable()) return mock.createInspection(input);
+  const db = requireDb();
+
   const row: NewInspection = {
     id: newId(),
     createdAt: now(),
@@ -91,6 +104,8 @@ export async function updateInspection(
   id: string,
   patch: Partial<Pick<Inspection, "title" | "status" | "notes" | "inspectorName">>,
 ): Promise<Inspection> {
+  if (!isDbAvailable()) return mock.updateInspection(id, patch);
+  const db = requireDb();
   const updatedAt = now();
 
   await db.transaction(async (tx) => {
@@ -114,6 +129,11 @@ export async function updateInspection(
 }
 
 export async function softDeleteInspection(id: string): Promise<void> {
+  if (!isDbAvailable()) {
+    mock.softDeleteInspection(id);
+    return;
+  }
+  const db = requireDb();
   const deletedAt = now();
 
   await db.transaction(async (tx) => {

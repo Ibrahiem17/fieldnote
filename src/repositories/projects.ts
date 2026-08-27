@@ -6,17 +6,20 @@
 
 import { and, desc, eq, isNull } from "drizzle-orm";
 
-import { db } from "@/db/client";
+import { isDbAvailable, requireDb } from "@/db/client";
 import { projects, type NewProject, type Project } from "@/db/schema";
 import { newId } from "@/lib/id";
 import { now } from "@/lib/time";
 import { appendOutboxEntry } from "./outbox";
+import * as mock from "@/db/mockStore";
 
 export type NewProjectInput = Pick<NewProject, "name" | "clientName" | "address"> &
   Partial<Pick<NewProject, "latitude" | "longitude" | "notes">>;
 
 /** Every project not soft-deleted, newest-updated first. */
 export async function listProjects(): Promise<Project[]> {
+  if (!isDbAvailable()) return mock.listProjects();
+  const db = requireDb();
   return db
     .select()
     .from(projects)
@@ -25,6 +28,8 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function getProject(id: string): Promise<Project | null> {
+  if (!isDbAvailable()) return mock.getProject(id);
+  const db = requireDb();
   const rows = await db
     .select()
     .from(projects)
@@ -33,6 +38,9 @@ export async function getProject(id: string): Promise<Project | null> {
 }
 
 export async function createProject(input: NewProjectInput): Promise<Project> {
+  if (!isDbAvailable()) return mock.createProject(input);
+  const db = requireDb();
+
   const row: NewProject = {
     id: newId(),
     createdAt: now(),
@@ -64,6 +72,10 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
 }
 
 export async function updateProject(id: string, patch: Partial<NewProjectInput>): Promise<Project> {
+  if (!isDbAvailable()) {
+    throw new Error("updateProject is not available in preview mode");
+  }
+  const db = requireDb();
   const updatedAt = now();
 
   await db.transaction(async (tx) => {
@@ -87,6 +99,10 @@ export async function updateProject(id: string, patch: Partial<NewProjectInput>)
 }
 
 export async function softDeleteProject(id: string): Promise<void> {
+  if (!isDbAvailable()) {
+    throw new Error("softDeleteProject is not available in preview mode");
+  }
+  const db = requireDb();
   const deletedAt = now();
 
   await db.transaction(async (tx) => {

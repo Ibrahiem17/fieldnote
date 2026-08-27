@@ -10,11 +10,12 @@
 // impossible to verify — the count would already include hundreds of rows
 // nobody actually created.
 
-import { db } from "./client";
+import { isDbAvailable, requireDb } from "./client";
 import { projects, templates, inspections, answers, attachments, outbox } from "./schema";
 import { newId } from "@/lib/id";
 import { now } from "@/lib/time";
 import type { InspectionStatus } from "./schema";
+import * as mock from "./mockStore";
 
 const PROJECT_NAMES = [
   "Riverside Distribution Center",
@@ -74,6 +75,11 @@ export async function resetAndReseed(): Promise<{
   templates: number;
   inspections: number;
 }> {
+  // Preview mode (docs/DESIGN.md D-013): no real database to reset — reset
+  // the in-memory mock store back to its own seed instead.
+  if (!isDbAvailable()) return mock.resetAndReseed();
+  const db = requireDb();
+
   await db.transaction(async (tx) => {
     // Order matters only in that it's tidy — none of these tables have a
     // real foreign-key constraint turned on on device, so any order works.

@@ -392,3 +392,71 @@ This isn't hand-written like everything else in this file — it's _generated_, 
 **`"postinstall"`** is one of several special script names npm recognizes and runs automatically — this one fires every time `npm install` finishes. Its job here is to immediately reapply every `.patch` file found in `patches/` to the just-installed, unpatched `node_modules`, so the edit is back in place within seconds of any fresh install, with nobody needing to remember to redo it by hand.
 
 **What happens if `expo-sqlite` is later upgraded and the patch no longer fits:** `patch-package` fails loudly — the `npm install` itself errors out, rather than silently dropping the fix. That's deliberate: a patch that quietly stopped applying would be far worse than one that makes noise about needing attention.
+
+---
+
+# The preview-mode fallback (D-013)
+
+## `src/db/client.ts` — catching a failure that used to crash the whole app
+
+```ts
+export let db: DrizzleDb | null = null;
+export let dbInitError: Error | null = null;
+
+try {
+  expoDb = openDatabaseSync("fieldnote.db", { enableChangeListener: true });
+  db = drizzle(expoDb, { schema });
+} catch (e) {
+  dbInitError = e instanceof Error ? e : new Error(String(e));
+  console.warn(/* ... */);
+}
+```
+
+**`export let db: DrizzleDb | null = null;`**
+Previously this was `export const db = drizzle(...)` — a `const` that was _always_ a working database, because if `drizzle(...)` (or the `openDatabaseSync(...)` before it) ever threw, the whole app crashed immediately, before this line ever finished. `let ... | null` says something different: "this box starts empty, and might end up holding a real database, or might not" — TypeScript now forces every piece of code that reads `db` to consider the possibility it's `null`, rather than trusting a promise that no longer always holds.
+
+**`try { ... } catch (e) { ... }`**
+The exact same shape used elsewhere in this project (`parseTemplateSchema`, Day 1 of Phase 2) — run the risky code, and if it throws, land in `catch` instead of taking the whole app down with it.
+
+**`dbInitError = e instanceof Error ? e : new Error(String(e));`**
+JavaScript allows `throw` to be given literally anything — a string, a number, not just a proper `Error` object. `e instanceof Error` checks which kind this particular one is; if it already is one, use it as-is; if not (rare, but possible), wrap whatever it was in a real `Error` so the rest of the app can rely on `dbInitError` always having the shape an `Error` has (a `.message`, a `.stack`), never guessing.
+
+## `src/db/client.ts` — the two functions repositories actually call
+
+```ts
+export function isDbAvailable(): boolean {
+  return db !== null;
+}
+
+export function requireDb(): DrizzleDb {
+  if (!db) {
+    throw new Error(
+      "requireDb() called while the database is unavailable — check isDbAvailable() first.",
+    );
+  }
+  return db;
+}
+```
+
+**Why two functions instead of just checking `db` directly everywhere:** `isDbAvailable()` is what every repository function asks _first_, before doing anything else — plain, readable, no cast needed. `requireDb()` exists for the moment right after that check has already passed: `db` is `DrizzleDb | null` as far as TypeScript is concerned everywhere else, but inside a repository function that has already returned early when `!isDbAvailable()`, we _know_ it's real. `requireDb()` is the one, single place that turns "I know this is fine" into an actual non-null value TypeScript agrees with — instead of every repository function individually writing `db!` (a manual, unchecked promise to the compiler) and hoping it's true.
+
+## `src/repositories/inspections.ts` — the shape every repository function now follows
+
+```ts
+export async function listInspections(filter?: InspectionFilter): Promise<Inspection[]> {
+  if (!isDbAvailable()) return mock.listInspections(filter);
+  const db = requireDb();
+  // ...real Drizzle query...
+}
+```
+
+Read as a sentence: "if there's no real database, hand back whatever the mock store says instead — otherwise, get a guaranteed-real `db` and continue exactly as before." The line `const db = requireDb();` **shadows** the `db` imported from `@/db/client` — inside this function, from this line down, `db` refers to the guaranteed-non-null local constant, not the possibly-null module export of the same name. This is deliberate, not an accident: every line below reads exactly as it did before this feature existed, because it's now working with a local `db` TypeScript is satisfied is real.
+
+## `src/db/mockStore.ts` — module-level `let`, on purpose
+
+```ts
+let projectsStore: Project[] = seedProjects();
+let inspectionsStore: Inspection[] = seedInspections(projectsStore, templatesStore);
+```
+
+Every other piece of state in this project lives inside SQLite, a component's `useState`, or a repository's function scope — this is the one place holding onto data in a plain **module-level `let`**, meaning it exists for as long as this file stays loaded in memory and is shared by anything that imports it. It intentionally does _not_ survive a page reload — reloading the page re-runs this file from scratch, calling `seedProjects()`/`seedInspections()` again and throwing away whatever changes were made, which is exactly the "changes aren't saved" behavior the preview-mode banner warns about.
