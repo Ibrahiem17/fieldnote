@@ -19,4 +19,16 @@ const config = getDefaultConfig(__dirname);
 
 config.resolver.sourceExts.push("sql");
 
+// --- Web-only: let expo-sqlite's browser backend actually run ---------------
+//
+// This app's real targets are Android and iOS, which use native on-device
+// SQLite and need none of this. `npm run web` is dev-tooling only — a way to
+// preview screens without an emulator — but expo-sqlite still tries to open
+// a database when the app boots, on every platform, web included. Without
+// this, that attempt fails immediately with
+// `ReferenceError: SharedArrayBuffer is not defined` — see
+// scripts/dev-web-coi-proxy.js for the rest of this fix (the response
+// headers this needs can't be set from here — see that file's comment).
+config.resolver.assetExts.push("wasm");
+
 module.exports = config;

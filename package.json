@@ -27,6 +27,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.5",
     "eslint-config-expo": "^57.0.1",
+    "http-proxy": "^1.18.1",
     "prettier": "^3.9.6",
     "typescript": "~6.0.3"
   },
@@ -35,6 +36,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "web:coi": "node scripts/dev-web-coi-proxy.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate"

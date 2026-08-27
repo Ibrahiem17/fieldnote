@@ -57,3 +57,11 @@ An app for people whose job is to inspect things — buildings, sites, equipment
 ## What Phase 1 deliberately does not do
 
 No cameras, no GPS, no photos, no forms with different field types, no internet calls of any kind, no PDF export. All of that is real, and all of it is planned — just not yet. Phase 1's only job is: can an inspector create, edit and delete an inspection with zero internet connection, and still see exactly what they left when they come back? Everything else is a later phase building on top of that "yes."
+
+## Why the web preview needed its own little proxy
+
+**Plain words:** the app's phone database only fully works, in a web browser, if that browser has unlocked a fairly advanced capability that most browsers keep switched off by default, for safety reasons. Turning it on requires the app's server to send back two specific labels with every page it delivers, saying "yes, I understand the risks, unlock it for me." Our dev server doesn't send those labels by default, and — this took real digging to find — the one obvious place to add them turned out not to work, because a _different_ part of the same dev server hands out the actual page before that fix ever gets a chance to run.
+
+**What fixed it:** instead of trying to edit the dev server from the inside, a small helper program was added that sits _in front of_ it — every request to the app goes through this helper first, which quietly stamps both labels onto the reply before passing it on to the browser, no matter which part of the dev server actually produced that reply.
+
+**Why this doesn't mean the web preview fully works now:** even with both labels correctly in place, the phone-database library still needs the browser itself to support one more specific, fairly new capability for actually reading and writing files efficiently — and not every browser has it yet. Confirmed directly: the sandboxed browser used for building this project doesn't. A normal, up-to-date desktop browser very likely does. Either way, this only ever affected the web preview used for double-checking screens during development — the real app, on an actual phone, was never touched by any of this.

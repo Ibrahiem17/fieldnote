@@ -323,3 +323,54 @@ plugins: [["inline-import", { extensions: [".sql"] }]],
 ```
 
 Once Metro is willing to _look at_ a `.sql` file, something still has to decide _what an import of one actually becomes_ — and by default, Babel (the tool that translates modern/TypeScript code into something a phone can run) assumes anything it's asked to process is JavaScript, and tries to parse raw SQL text as if it were code, which fails immediately. The `inline-import` Babel plugin intercepts specifically imports ending in `.sql` (`extensions: [".sql"]`) and replaces them, before Babel ever tries to parse them as JS, with the file's exact raw text turned into a plain JavaScript string. That's the difference between `import m0000 from './0000_init.sql'` crashing the bundler and `m0000` simply being a string holding the whole `CREATE TABLE ...` statement, ready for Drizzle's migrator to run.
+
+---
+
+## `scripts/dev-web-coi-proxy.js` — a reverse proxy, piece by piece
+
+This file is dev tooling only (D-008 in `docs/DESIGN.md`) — it exists purely to make `npm run web:coi` preview the database correctly in browsers that support it. Nothing here ships in the real app.
+
+```js
+const metro = spawn("npx", ["expo", "start", "--web", "--port", String(METRO_PORT)], {
+  stdio: "inherit",
+  shell: true,
+});
+```
+
+**`spawn(...)`** — a Node.js function (from the built-in `child_process` module) that starts a completely separate program running alongside this script, rather than calling a function inside the same process. The first argument, `"npx"`, is the program to run; the array after it is the list of arguments to hand it — the same command you'd type by hand as `npx expo start --web --port 8081`, just split into pieces because that's the shape `spawn` expects.
+
+**`{ stdio: "inherit", shell: true }`** — an **options object**, the second argument. `stdio: "inherit"` means "don't capture this program's output — let it print straight to the same terminal this script is running in," which is why you still see Metro's normal bundling logs when running `npm run web:coi`. `shell: true` runs the command through the operating system's own command shell instead of launching `npx` as a program directly — needed here because on Windows, `npx` is actually a small shell script (`npx.cmd`), not a real `.exe`, and asking Node to launch it directly (without a shell in between to interpret it) fails outright.
+
+```js
+const proxy = httpProxy.createProxyServer({
+  target: `http://localhost:${METRO_PORT}`,
+  ws: true,
+});
+```
+
+`httpProxy.createProxyServer({ ... })` — from the `http-proxy` package — builds a reusable object whose job is "take a request aimed at me, and forward it somewhere else instead." `target` is that "somewhere else": Metro's real dev server, running on its own port. `ws: true` tells it to also forward WebSocket connections, not just plain HTTP requests — Metro uses a WebSocket to push live-reload updates to the browser, and without this, editing a file while `web:coi` is running would need a manual refresh every time instead of updating itself.
+
+```js
+proxy.on("proxyRes", (proxyRes) => {
+  proxyRes.headers["Cross-Origin-Opener-Policy"] = "same-origin";
+  proxyRes.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+});
+```
+
+**`proxy.on("proxyRes", (proxyRes) => { ... })`** — registers a callback to run every time the proxy receives a response back from Metro, just before passing it along to the browser. `"proxyRes"` is the name of this specific event; different tools name their events differently, but the shape — "run this function whenever that thing happens" — is the same idea as `onPress` on a `Button` or `onChangeText` on an `Input` elsewhere in this project.
+
+**`proxyRes.headers["Cross-Origin-Opener-Policy"] = "same-origin";`** — `proxyRes.headers` is a plain object, one property per HTTP response header; setting a new property on it adds that header (or overwrites it, if Metro already sent one by that name) before the response continues on to the browser. This is the entire fix: every single response passing through this proxy — the HTML document, every JS bundle, everything — leaves with these two headers attached, regardless of what generated it on the other side. That "regardless of what generated it" is exactly why this works where trying to add the same headers from inside `metro.config.js` didn't (see D-008): the proxy sits outside Expo's own server entirely, so it can't be skipped by whichever internal handler happens to answer a given request.
+
+```js
+const server = http.createServer((req, res) => {
+  proxy.web(req, res);
+});
+
+server.on("upgrade", (req, socket, head) => {
+  proxy.ws(req, socket, head);
+});
+```
+
+`http.createServer((req, res) => { ... })` — Node's built-in way to create an actual HTTP server: give it a function, and that function runs once for every incoming request, with `req` (what the browser asked for) and `res` (what to send back) as its two inputs. Here, the function does nothing itself except immediately hand both off to `proxy.web(...)`, which is what actually talks to Metro and streams its response back.
+
+Plain HTTP requests and the WebSocket upgrade that starts a live-reload connection arrive as two _different_ kinds of events in Node's HTTP server — a normal request triggers the function passed to `createServer`, but a WebSocket handshake triggers a separate `"upgrade"` event instead, which is why forwarding it needs its own line (`proxy.ws(...)`) rather than being handled automatically inside the first function.

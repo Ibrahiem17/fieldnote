@@ -21,7 +21,7 @@ npm install
 npm start
 ```
 
-Then press `a` for the Android emulator, `i` for iOS simulator (macOS only), or `w` for a web preview (see **Known issues** below — web can't run the real database yet).
+Then press `a` for the Android emulator, `i` for iOS simulator (macOS only), or `w` for a plain web preview. For a web preview where the database actually has a chance of working, use `npm run web:coi` instead (see **Known issues** below for what it fixes and what it can't).
 
 To install a real dev build on a physical phone (required for Phase 1's definition of done — see plan Section 1.2):
 
@@ -33,11 +33,12 @@ eas build --profile development --platform android
 
 ### Other commands
 
-| Command | What it does |
-|---|---|
-| `npm run typecheck` | `tsc --noEmit` — must pass with zero errors |
-| `npm run lint` | ESLint over the whole project |
-| `npm run db:generate` | Generate a new Drizzle migration after editing `src/db/schema.ts` |
+| Command               | What it does                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `npm run typecheck`   | `tsc --noEmit` — must pass with zero errors                                                  |
+| `npm run lint`        | ESLint over the whole project                                                                |
+| `npm run db:generate` | Generate a new Drizzle migration after editing `src/db/schema.ts`                            |
+| `npm run web:coi`     | Web preview through a proxy that adds the headers `expo-sqlite` web needs — see Known issues |
 
 ## Project structure
 
@@ -100,7 +101,7 @@ common columns (every table above except outbox):
 ## Known issues
 
 - **No physical-device or emulator test pass yet.** This build was developed and verified (typecheck, lint, Metro bundling) in a sandboxed environment without Android Studio or a physical device available. The formal Phase 1 test cases (Section 6.2 of the plan) still need to be executed on a real phone or Android emulator per Section 0.6.5 before Phase 1 can be marked done — see [`docs/TEST-RESULTS-PHASE-1.md`](docs/TEST-RESULTS-PHASE-1.md) for status.
-- **Web preview cannot open the database.** `npm run web` bundles and boots the app, but `expo-sqlite`'s web backend needs `SharedArrayBuffer` (browser cross-origin isolation headers), which the local preview doesn't provide. This only affects the web target — Android and iOS use native on-device SQLite and are unaffected. Web was never a target platform for this project; it was used here only to verify the JS bundles and boots without errors.
+- **Web preview may not open the database, depending on your browser.** Plain `npm run web` can't satisfy `expo-sqlite`'s `SharedArrayBuffer` requirement at all (see D-008 in `docs/DESIGN.md`). `npm run web:coi` fixes that specific problem via a small reverse proxy — but `expo-sqlite` web also needs your browser to implement `FileSystemFileHandle.createSyncAccessHandle()` (part of OPFS), which not every Chromium build does yet. Try `npm run web:coi` in an up-to-date desktop Chrome or Edge; this repo's own sandboxed dev environment doesn't have that API, so it wasn't fully verified end-to-end here. None of this touches Android or iOS — both use native on-device SQLite and were never affected. Web was never a target platform for this project.
 - EAS build / install-on-device has not been run (needs an Expo account and, ideally, a physical Android phone).
 
 ## Documentation
