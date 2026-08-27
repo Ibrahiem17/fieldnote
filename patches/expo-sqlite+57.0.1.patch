@@ -1,0 +1,56 @@
+diff --git a/node_modules/expo-sqlite/web/worker.ts b/node_modules/expo-sqlite/web/worker.ts
+index deaf721..5308dab 100644
+--- a/node_modules/expo-sqlite/web/worker.ts
++++ b/node_modules/expo-sqlite/web/worker.ts
+@@ -52,7 +52,7 @@ const MAX_INT32 = 0x7fffffff;
+ const MIN_INT32 = -0x80000000;
+ 
+ let _sqlite3: SQLiteAPI | null = null;
+-let _vfs: AccessHandlePoolVFS | null = null;
++let _vfs: AccessHandlePoolVFS | MemoryVFS | null = null;
+ let _vfsMemory: MemoryVFS | null = null;
+ 
+ const databaseIdMap = new Map<number, DatabaseEntity>();
+@@ -774,7 +774,7 @@ async function maybeFinalizeAllStatements(nativeDatabaseId: number) {
+ 
+ async function maybeInitAsync(): Promise<{
+   sqlite3: SQLiteAPI;
+-  vfs: AccessHandlePoolVFS;
++  vfs: AccessHandlePoolVFS | MemoryVFS;
+   vfsMemory: MemoryVFS;
+ }> {
+   if (!_sqlite3) {
+@@ -787,9 +787,31 @@ async function maybeInitAsync(): Promise<{
+     }
+ 
+     if (_vfs == null) {
+-      _vfs = await AccessHandlePoolVFS.create(VFS_NAME_PERSISTENT, module);
++      // PATCH (see docs/DESIGN.md D-009 in the Fieldnote project): AccessHandlePoolVFS
++      // needs FileSystemFileHandle.createSyncAccessHandle(), an OPFS API not every
++      // browser implements yet. Feature-detect instead of letting every database
++      // open hang/throw with an opaque "Sync operation timeout" in browsers that
++      // don't have it — fall back to an in-memory VFS there instead. Browsers that
++      // do support it are completely unaffected: same class, same behavior.
++      const supportsSyncAccessHandle =
++        // @ts-expect-error FileSystemFileHandle may not exist in this lib.dom.d.ts version
++        typeof FileSystemFileHandle !== 'undefined' &&
++        // @ts-expect-error createSyncAccessHandle is not in every lib.dom.d.ts version
++        typeof FileSystemFileHandle.prototype?.createSyncAccessHandle === 'function';
++      if (supportsSyncAccessHandle) {
++        _vfs = await AccessHandlePoolVFS.create(VFS_NAME_PERSISTENT, module);
++      } else {
++        console.warn(
++          '[expo-sqlite web] This browser does not implement ' +
++            'FileSystemFileHandle.createSyncAccessHandle (part of OPFS). Falling back ' +
++            'to an in-memory VFS: databases will work normally for this session, but ' +
++            'will NOT persist across a page reload. This does not affect browsers that ' +
++            'support the API, or the native Android/iOS builds, which never run this file.',
++        );
++        _vfs = await MemoryVFS.create(VFS_NAME_PERSISTENT, module);
++      }
+       if (_vfs == null) {
+-        throw new Error('Failed to initialize AccessHandlePoolVFS');
++        throw new Error('Failed to initialize a VFS for expo-sqlite web');
+       }
+     }
+     _sqlite3.vfs_register(_vfs, true);

@@ -28,6 +28,7 @@
     "eslint": "^9.39.5",
     "eslint-config-expo": "^57.0.1",
     "http-proxy": "^1.18.1",
+    "patch-package": "^8.0.1",
     "prettier": "^3.9.6",
     "typescript": "~6.0.3"
   },
@@ -39,7 +40,8 @@
     "web:coi": "node scripts/dev-web-coi-proxy.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "postinstall": "patch-package"
   },
   "private": true
 }

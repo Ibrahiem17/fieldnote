@@ -374,3 +374,21 @@ server.on("upgrade", (req, socket, head) => {
 `http.createServer((req, res) => { ... })` — Node's built-in way to create an actual HTTP server: give it a function, and that function runs once for every incoming request, with `req` (what the browser asked for) and `res` (what to send back) as its two inputs. Here, the function does nothing itself except immediately hand both off to `proxy.web(...)`, which is what actually talks to Metro and streams its response back.
 
 Plain HTTP requests and the WebSocket upgrade that starts a live-reload connection arrive as two _different_ kinds of events in Node's HTTP server — a normal request triggers the function passed to `createServer`, but a WebSocket handshake triggers a separate `"upgrade"` event instead, which is why forwarding it needs its own line (`proxy.ws(...)`) rather than being handled automatically inside the first function.
+
+## `patches/expo-sqlite+57.0.1.patch` — changing someone else's code without forking it
+
+This isn't hand-written like everything else in this file — it's _generated_, by a tool called `patch-package`, from an edit made directly inside `node_modules/expo-sqlite`. Worth understanding what it actually is and why it's safe to commit.
+
+**The problem it solves:** `node_modules/` is never committed to git (see `.gitignore`) — every teammate, and every CI machine, regenerates it fresh from `package.json` by running `npm install`. If you hand-edit a file inside `node_modules` and just leave it there, that edit vanishes the moment anyone (including you, later) reinstalls dependencies.
+
+**What `patch-package` actually does:** running `npx patch-package expo-sqlite` compares the edited files inside `node_modules/expo-sqlite` against a freshly-downloaded, untouched copy of the same package, and writes out _only the difference_ as a plain text `.patch` file (the same diff format `git diff` produces) — small, human-readable, and safe to commit because it contains no copy of the package itself, only the lines that changed.
+
+```json
+"scripts": {
+  "postinstall": "patch-package"
+}
+```
+
+**`"postinstall"`** is one of several special script names npm recognizes and runs automatically — this one fires every time `npm install` finishes. Its job here is to immediately reapply every `.patch` file found in `patches/` to the just-installed, unpatched `node_modules`, so the edit is back in place within seconds of any fresh install, with nobody needing to remember to redo it by hand.
+
+**What happens if `expo-sqlite` is later upgraded and the patch no longer fits:** `patch-package` fails loudly — the `npm install` itself errors out, rather than silently dropping the fix. That's deliberate: a patch that quietly stopped applying would be far worse than one that makes noise about needing attention.
