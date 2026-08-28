@@ -267,6 +267,114 @@ Two ternaries chained: read outside-in. If `isDisabled` is true, the opacity is 
 
 ---
 
+## `src/theme/tokens.ts` — one file, two palettes
+
+```ts
+export const palettes = {
+  light: {
+    bg: "#FFFFFF",
+    // ...
+  },
+  dark: {
+    bg: "#0B1220",
+    // ...
+  },
+} as const;
+
+export type ColorScheme = keyof typeof palettes;
+export type Palette = (typeof palettes)[ColorScheme];
+```
+
+**`export const palettes = { light: {...}, dark: {...} } as const;`**
+One object, two labelled entries, each itself an object of colour names to hex strings. `as const` — seen before on `spacing`/`radius` — locks every value to its exact literal type (`"#FFFFFF"`, not just `string`), which is what makes the two type lines below possible.
+
+**`export type ColorScheme = keyof typeof palettes;`**
+`typeof palettes` — in a _type_ position (not a value position, where `typeof` means something else in plain JavaScript) — asks TypeScript "what is the shape of this object?" `keyof` then asks "what are its label names?" The result: `ColorScheme` becomes the type `"light" | "dark"` — automatically, from the object itself, rather than someone typing that union out by hand and risking it drifting out of sync if a third palette were ever added.
+
+**`export type Palette = (typeof palettes)[ColorScheme];`**
+Reading one property's type out of another type, the same way `palettes.light` would read one property's _value_ out of an object — except this happens at the type level, before the app ever runs. Because `ColorScheme` is `"light" | "dark"`, this indexes with _both_ at once, producing "the shape a palette has" as its own reusable type, used by `ThemeProvider.tsx`'s `Theme` type so `theme.colors.primary` is checked against the real palette shape, not typed as `any`.
+
+## `src/components/Screen.tsx` — the wrapper every screen uses
+
+```tsx
+export function Screen({ style, padded = true, children, ...rest }: ScreenProps) {
+```
+
+**`{ style, padded = true, children, ...rest }`**
+**Destructuring** with a **default value**: pull `style`, `padded` and `children` out of the props object by name, and — new here — `padded = true` means "if the caller didn't pass `padded` at all, use `true` instead of `undefined`." Every screen in the app gets padding for free unless it explicitly opts out. `...rest` gathers up whatever other props were passed (Section on `Button`/`Card` uses the same pattern) so they can be forwarded on without naming each one.
+
+```tsx
+<SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.bg }]} edges={["top"]}>
+```
+
+**`SafeAreaView`** (from `react-native-safe-area-context`, not React Native's own built-in one, which is iOS-only and considered legacy) — a component that adds padding matching the phone's own unsafe zones: the notch, the status bar, the home-indicator bar. **`edges={["top"]}`** — only pad the _top_ edge, not all four; the bottom is deliberately left to the tab bar (rendered outside this component) to handle its own spacing, so the two don't double up padding.
+
+```tsx
+padded && { padding: theme.spacing.md },
+```
+
+Inside the style array: `&&` here isn't a comparison, it's a shortcut. JavaScript evaluates the left side first — if `padded` is `false`, the whole expression evaluates to `false`, and React Native's style array simply skips a `false` entry (same as `null`) when merging styles. If `padded` is `true`, the expression evaluates to the object on the right, which _does_ get merged in. One line doing the job an `if` statement would otherwise need.
+
+## `src/components/Card.tsx` — one component, two different things it can become
+
+```tsx
+if (onPress) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [...cardStyle, { opacity: pressed ? 0.7 : 1 }]}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+return (
+  <View style={cardStyle} {...rest}>
+    {children}
+  </View>
+);
+```
+
+A component is allowed to `return` different JSX depending on a condition, same as any other function returning different values down different code paths. Here: if the caller passed an `onPress` function, a `Card` becomes a tappable `Pressable` (Section on `Button` explains the `({ pressed }) => [...]` style-function pattern); if not, it's a plain, non-interactive `View`. Every list row in the Projects and Inspections screens passes `onPress`; nothing else in the app currently needs the plain form, but the option exists rather than forcing every `Card` to be tappable whether that makes sense or not.
+
+**`[...cardStyle, { opacity: ... }]`**
+The spread operator again, this time spreading an _array_ (`cardStyle`, built a few lines above from the theme) into a new array, with one more style object appended after it. Same idea as spreading an object's properties (`...commonColumns()` in `schema.ts`) — "take everything already in here, then add this."
+
+## `src/components/Input.tsx` and `EmptyState.tsx` — the `? ... : null` pattern, used everywhere
+
+```tsx
+{
+  label ? (
+    <Text variant="label" muted>
+      {label}
+    </Text>
+  ) : null;
+}
+```
+
+This exact shape — a ternary whose "otherwise" branch is `null` — is how JSX says "show this, or show nothing at all." `null` is one of a small handful of values React treats as "render nothing here" (others: `undefined`, `false`, an empty string) — it does _not_ mean "show an empty `<View>`," it means the whole conditional block leaves no trace in the rendered output. `Input`'s label and error message, and `EmptyState`'s optional `message`, all use this to appear only when there's actually something to show.
+
+## `src/components/Badge.tsx` — a lookup table instead of an `if`/`else` chain
+
+```tsx
+const colorFor: Record<InspectionStatus, string> = {
+  draft: theme.colors.textMuted,
+  in_progress: theme.colors.warning,
+  completed: theme.colors.success,
+  submitted: theme.colors.primary,
+};
+
+const color = colorFor[status];
+```
+
+**`Record<InspectionStatus, string>`** — a TypeScript **utility type**: "an object whose keys are exactly the members of `InspectionStatus` (`"draft" | "in_progress" | "completed" | "submitted"`, from `schema.ts`) and whose values are all `string`." Because the key type is that specific union rather than plain `string`, TypeScript checks this object has _every_ status accounted for — miss one, like forgetting `submitted`, and this line itself fails to compile, long before anyone notices a badge rendering with no colour. Reading `colorFor[status]` afterwards is then a plain lookup, not a chain of `if (status === "draft") ... else if (status === "in_progress") ...` that would need to be extended by hand every time a new status was ever added.
+
+**`backgroundColor: color + "22"`**
+String concatenation — not addition, since `color` is text like `"#2563EB"`. Hex colours can carry an optional two extra digits for opacity (**alpha**); appending `"22"` (roughly 13% opacity in that encoding) turns a solid colour into a soft, tinted background for the pill, reusing the exact same colour as the text on top of it instead of picking a separate, unrelated background shade.
+
+---
+
 ## `src/app/_layout.tsx` — blocking the app until the database is ready
 
 ```tsx
@@ -452,6 +560,23 @@ export async function listInspections(filter?: InspectionFilter): Promise<Inspec
 
 Read as a sentence: "if there's no real database, hand back whatever the mock store says instead — otherwise, get a guaranteed-real `db` and continue exactly as before." The line `const db = requireDb();` **shadows** the `db` imported from `@/db/client` — inside this function, from this line down, `db` refers to the guaranteed-non-null local constant, not the possibly-null module export of the same name. This is deliberate, not an accident: every line below reads exactly as it did before this feature existed, because it's now working with a local `db` TypeScript is satisfied is real.
 
+## `src/repositories/projects.ts` — building an input type out of pieces of another type
+
+`projects.ts` follows the exact same shape as `inspections.ts` just above — same `isDbAvailable()` early-return, same `requireDb()` shadowing, same one-transaction-plus-outbox-entry pattern for every write. The one genuinely new idea in this file is its input type:
+
+```ts
+export type NewProjectInput = Pick<NewProject, "name" | "clientName" | "address"> &
+  Partial<Pick<NewProject, "latitude" | "longitude" | "notes">>;
+```
+
+`NewProject` (from `schema.ts`) is the _full_ shape of a row ready to insert — every column, including ones like `id`, `createdAt`, and `syncStatus` that `createProject` fills in itself and should never be handed in from the outside by a screen. `NewProjectInput` is a smaller, purpose-built type describing only what a screen is actually allowed to supply.
+
+- **`Pick<NewProject, "name" | "clientName" | "address">`** — another TypeScript utility type (`Record<K,V>` was the first one, back in `Badge.tsx`): "take the `NewProject` type, and keep only these three named fields, with the exact same types they have there." These three are required — a screen must supply a `name`, `clientName`, and `address` (even if `clientName`/`address` are individually allowed to be `null` inside `NewProject` itself).
+- **`Partial<Pick<NewProject, "latitude" | "longitude" | "notes">>`** — `Pick` first narrows down to just `latitude`, `longitude`, and `notes`; `Partial<...>` wrapped around that then makes all three of _those_ **optional**, meaning a caller can leave any or all of them out entirely (as opposed to `null`, which is a value — `Partial` is about the key not being present at all).
+- **`&`** — TypeScript's **intersection** operator: "a value of this type must satisfy the left side _and_ the right side at once." The result is a single object type with three required fields and three optional ones.
+
+**Why not just reuse `NewProject` directly as the input type:** if `createProject`'s parameter were typed as plain `NewProject`, nothing would stop a screen from passing in its own `id`, or a fake `createdAt`, or a `syncStatus` other than `"local"` — all things this function is supposed to decide for itself, seen a few lines below where `row` is actually built. Building a smaller, deliberately-restricted input type makes those mistakes impossible to even attempt — the compiler rejects the call before the code ever runs, rather than a bug slipping through because the type was too permissive.
+
 ## `src/db/mockStore.ts` — module-level `let`, on purpose
 
 ```ts
@@ -460,3 +585,141 @@ let inspectionsStore: Inspection[] = seedInspections(projectsStore, templatesSto
 ```
 
 Every other piece of state in this project lives inside SQLite, a component's `useState`, or a repository's function scope — this is the one place holding onto data in a plain **module-level `let`**, meaning it exists for as long as this file stays loaded in memory and is shared by anything that imports it. It intentionally does _not_ survive a page reload — reloading the page re-runs this file from scratch, calling `seedProjects()`/`seedInspections()` again and throwing away whatever changes were made, which is exactly the "changes aren't saved" behavior the preview-mode banner warns about.
+
+## `src/app/(tabs)/inspections.tsx` — the filterable inspections list
+
+This is the busiest screen in Phase 1, so it's worth going slowly.
+
+```ts
+type StatusFilter = "all" | InspectionStatus;
+```
+
+`InspectionStatus` (from `schema.ts`) is already a union like `"draft" | "in_progress" | "completed" | "submitted"` — every real status a row can have. But the filter chip row also needs an "All statuses" option that isn't a real status at all. Rather than making `"all"` secretly mean "no filter" inside a variable typed `InspectionStatus` (which would be a lie to the type checker), a _new_, slightly bigger union is declared that's every real status **plus** the literal string `"all"`. Now the variable holding the current filter can honestly hold either kind of value, and TypeScript will complain if it's ever set to anything else — a typo like `"stauts"` would be caught immediately.
+
+```ts
+const [inspectionList, setInspectionList] = useState<Inspection[]>([]);
+const [projectList, setProjectList] = useState<Project[]>([]);
+const [projectFilter, setProjectFilter] = useState<string | "all">("all");
+const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+const [loading, setLoading] = useState(true);
+```
+
+Five independent pieces of state: the rows currently on screen, the full project list (needed just to build the project filter chips and to translate a project id into a readable name), which filter chip is selected in each of the two rows, and whether a load is in flight right now.
+
+```ts
+const load = useCallback(() => {
+  setLoading(true);
+  return Promise.all([
+    listInspections({
+      projectId: projectFilter === "all" ? undefined : projectFilter,
+      status: statusFilter === "all" ? undefined : statusFilter,
+    }),
+    listProjects(),
+  ])
+    .then(([rows, projects]) => {
+      setInspectionList(rows);
+      setProjectList(projects);
+    })
+    .finally(() => setLoading(false));
+}, [projectFilter, statusFilter]);
+```
+
+`load` asks the repository layer for two different things **at the same time** rather than one after another — `Promise.all([a, b])` starts both `listInspections(...)` and `listProjects()` immediately and waits for whichever finishes last, instead of waiting for the inspections to fully finish before even starting the projects request. That's strictly faster when the two requests don't depend on each other, which they don't here.
+
+The ternaries inside the object passed to `listInspections` are the actual filtering logic: "if the currently-selected project filter is the special `'all'` value, don't pass a `projectId` to the repository at all (`undefined` means 'no filter' to `listInspections`); otherwise pass the real id." Same idea for `status`.
+
+`.then(([rows, projects]) => {...})` is **array destructuring** on the result of `Promise.all` — it resolves to a two-item array `[inspectionsResult, projectsResult]` in the same order the promises were listed, and destructuring immediately unpacks that into two clearly-named variables instead of writing `result[0]` and `result[1]`.
+
+`.finally(() => setLoading(false))` runs whether the promise chain above it succeeded or threw — this is what guarantees the loading spinner state always gets turned off, even if one of the two repository calls fails.
+
+`useCallback(..., [projectFilter, statusFilter])` means: rebuild this `load` function only when either filter actually changes. If it were rebuilt on every render, the `useFocusEffect` below (which depends on `load`) would think its dependency changed on every render too, and would refetch constantly for no reason.
+
+```ts
+useFocusEffect(
+  useCallback(() => {
+    let cancelled = false;
+    load().catch((e) => {
+      if (!cancelled) console.error(e);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [load]),
+);
+```
+
+`useFocusEffect` (from Expo Router, not React itself) runs its callback every time this screen becomes the visible tab — including navigating back to it, not just the very first mount. That matters here: if you create a new inspection on the "New Inspection" screen and tap back, this list needs to refetch so the new row actually shows up, not just on first app launch.
+
+The `cancelled` flag is the standard fix for a subtle race: if you flip tabs away _before_ `load()` finishes, and then the promise resolves late, calling `setInspectionList` on a screen that's no longer focused/mounted would be wasted work (and in stricter setups, a warning). The `return () => { cancelled = true }` is React's **cleanup function** — it runs automatically right before this effect runs again (e.g. leaving the screen), and setting the flag means the `.catch` handler checks `cancelled` before logging, so a stale error from an abandoned request is silently ignored rather than logged as if it were current.
+
+```ts
+const projectNameById = useMemo(() => {
+  const map = new Map<string, string>();
+  for (const p of projectList) map.set(p.id, p.name);
+  return map;
+}, [projectList]);
+```
+
+Each inspection row only stores a `projectId`, not the project's name — that's normal database design (don't duplicate the name in every inspection row; look it up). But looking up a name by scanning the whole `projectList` array _for every single inspection row_ while rendering a long list would be slow. `useMemo` builds a `Map` — `id → name` — exactly once whenever `projectList` changes, so that later, rendering each row can do an instant `projectNameById.get(item.projectId)` lookup instead of an array scan.
+
+```ts
+function FilterRow<T extends string>({
+  options,
+  selected,
+  onSelect,
+}: {
+  options: { key: T; label: string }[];
+  selected: T;
+  onSelect: (key: T) => void;
+}) {
+```
+
+This is a **generic component** — `<T extends string>` means "this component works with any string-based type `T`, and TypeScript should figure out which one from how it's actually used." The project filter row is called with `options` whose `key` is a project id (`string`) or `"all"`; the status filter row is called with `options` whose `key` is an `InspectionStatus` or `"all"`. Writing `FilterRow` once, generically, means both filter rows share one component and one set of styling/scroll behavior, while `onSelect` still gets called with the _correctly narrowed_ type each time (a status filter's `onSelect` receives a `StatusFilter`, not a bare `string`) — TypeScript checks this even though the component's code is written only once.
+
+```ts
+backgroundColor: active ? theme.colors.primary + "22" : theme.colors.surface,
+```
+
+Same "append two hex digits for opacity" trick already explained for `Badge.tsx` — `"22"` here means roughly 13% opacity, a much fainter tint than the more visible one used on badges, appropriate for a background wash behind a chip rather than a solid badge fill.
+
+## `src/app/(tabs)/settings.tsx` — dev tools and a database-reset confirmation
+
+```ts
+const [counts, setCounts] = useState({ projects: 0, inspections: 0, outbox: 0 });
+```
+
+One object holding three numbers, rather than three separate `useState` calls — a reasonable choice when the three values are always read and written together (they're both set at once inside `refreshCounts`, never independently).
+
+```ts
+const refreshCounts = useCallback(async () => {
+  const [projects, inspections, outboxTotal] = await Promise.all([
+    listProjects(),
+    listInspections(),
+    countOutboxEntries(),
+  ]);
+  setCounts({ projects: projects.length, inspections: inspections.length, outbox: outboxTotal });
+}, []);
+```
+
+Same `Promise.all` + array-destructuring pattern as `inspections.tsx`'s `load`, just with three requests instead of two, and this function is declared `async` so `await` can be used directly instead of chaining `.then(...)`. `useFocusEffect` below calls this every time the Settings tab becomes visible, so the counts shown are always fresh — including right after a reseed, or after creating/deleting an inspection on another tab.
+
+```ts
+const handleReseed = () => {
+  Alert.alert(
+    "Reset & reseed database?",
+    "This deletes every project, template and inspection...",
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Reset & Reseed",
+        style: "destructive",
+        onPress: async () => { ... },
+      },
+    ],
+  );
+};
+```
+
+`Alert.alert(title, message, buttons)` is React Native's built-in native confirmation dialog — no custom modal component needed. The third argument is an array of button descriptors: a plain `"Cancel"` button that just dismisses (`style: "cancel"` only affects how it looks on iOS — it doesn't run any code), and a second button whose `style: "destructive"` renders it in a warning color (red on iOS) as a visual signal that this action deletes data, whose `onPress` is where the actual reseed happens. This is exactly why the button only _offers_ the action — nothing destructive runs until the user explicitly taps the second, clearly-labeled button in the native dialog, one extra deliberate step past the initial screen tap.
+
+Inside `onPress`, a standard try/catch/finally: `setReseeding(true)` before starting (so the button can show a loading spinner and presumably disable itself while the reseed is in progress — see `Button`'s `loading` prop, covered above), the real work (`resetAndReseed()` then `refreshCounts()`) inside `try`, a friendly `Alert.alert("Done", ...)` on success, an equally friendly `Alert.alert("Reseed failed", ...)` if something throws, and `setReseeding(false)` in `finally` so the loading state always clears — succeed or fail — the same "finally always runs" guarantee explained for `load` above.

@@ -44,7 +44,7 @@ An app for people whose job is to inspect things — buildings, sites, equipment
 
 ## Why light and dark mode both matter from day one
 
-**Plain words:** the phone's system setting can be light or dark, and the app has to look correct — readable text, no white writing hiding on a white background — in both, because the user's phone might be in either at any moment. Building both from the start (one file of colours, per Section — `tokens.ts`) means there's never a scramble later to retrofit a second look onto components that only ever expected one.
+**Plain words:** the phone's system setting can be light or dark, and the app has to look correct — readable text, no white writing hiding on a white background — in both, because the user's phone might be in either at any moment. Building both from the start (one file of colours — `tokens.ts` — holding both palettes) means there's never a scramble later to retrofit a second look onto components that only ever expected one.
 
 ## The second migration — proving an upgrade doesn't erase anything
 
