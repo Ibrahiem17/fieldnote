@@ -76,6 +76,8 @@ function seedProjects(): Project[] {
 }
 
 function seedTemplates(): Template[] {
+  // Names match src/db/seed.ts's real TEMPLATE_DEFS (found out of sync during
+  // Phase 1's web-preview test pass — see docs/DESIGN.md D-013 addendum).
   return [
     {
       id: "mock-template-1",
@@ -83,7 +85,7 @@ function seedTemplates(): Template[] {
       updatedAt: daysAgo(60),
       deletedAt: null,
       syncStatus: "local",
-      name: "Roof Inspection",
+      name: "General Site Safety Checklist",
       version: 1,
       schemaJson: JSON.stringify({ fields: [] }),
     },
@@ -93,8 +95,8 @@ function seedTemplates(): Template[] {
       updatedAt: daysAgo(60),
       deletedAt: null,
       syncStatus: "local",
-      name: "Equipment Check",
-      version: 1,
+      name: "Electrical Systems Inspection",
+      version: 2,
       schemaJson: JSON.stringify({ fields: [] }),
     },
   ];
