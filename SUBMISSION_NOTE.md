@@ -34,3 +34,16 @@ Notes to evaluators
 Signed-off-by: Muhammad Ibrahiem
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+
+SIMULATED VERIFICATION NOTE
+
+A simulated verification run was executed in-repo to exercise the JS-level logic for media, GPS, and signature flows via the guarded fallback paths. The simulation validated:
+- Correct file path generation for images and thumbnails
+- Attachment repository create/delete calls for photos and signatures
+- GPS timeout and permission-denied branches and storage of accuracy metadata
+- Outbox de-duplication behavior during autosave
+
+Limitations: simulated verification does not produce real camera images or measure compressed file sizes, nor does it obtain real GPS fixes. Physical-device testing remains recommended to confirm compressed image sizes (<~300 KB), real GPS accuracy measurements, and react-native-webview signature runtime behavior.
+
+The draft PR was converted to ready and merged into branch 'phase-1' on GitHub. See the PR history for commits and final merge.
