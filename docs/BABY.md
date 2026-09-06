@@ -723,3 +723,68 @@ const handleReseed = () => {
 `Alert.alert(title, message, buttons)` is React Native's built-in native confirmation dialog — no custom modal component needed. The third argument is an array of button descriptors: a plain `"Cancel"` button that just dismisses (`style: "cancel"` only affects how it looks on iOS — it doesn't run any code), and a second button whose `style: "destructive"` renders it in a warning color (red on iOS) as a visual signal that this action deletes data, whose `onPress` is where the actual reseed happens. This is exactly why the button only _offers_ the action — nothing destructive runs until the user explicitly taps the second, clearly-labeled button in the native dialog, one extra deliberate step past the initial screen tap.
 
 Inside `onPress`, a standard try/catch/finally: `setReseeding(true)` before starting (so the button can show a loading spinner and presumably disable itself while the reseed is in progress — see `Button`'s `loading` prop, covered above), the real work (`resetAndReseed()` then `refreshCounts()`) inside `try`, a friendly `Alert.alert("Done", ...)` on success, an equally friendly `Alert.alert("Reseed failed", ...)` if something throws, and `setReseeding(false)` in `finally` so the loading state always clears — succeed or fail — the same "finally always runs" guarantee explained for `load` above.
+
+---
+
+## Phase 2 additions (new files and concepts)
+
+The Phase 2 work adds a small set of files to make templates render into data-driven forms, to store answers and attachments, and to perform runtime validation before marking an inspection complete. Each of the new symbols below is explained so a complete beginner can follow.
+
+### `src/components/FormRenderer.tsx` — render a JSON template into fields
+
+- This component reads a template's `schemaJson`, parses it, and turns every `section.fields` array into visual inputs using a `.map()` over the array. Each `field` has a `key`, `type` and `label`. The renderer keeps a local `answersMap` (an object whose keys are `fieldKey` and values are the current field value) and updates it immediately on change.
+- Autosave: a small debounce per-field waits 500ms after the last keystroke before calling the repository `saveAnswer(...)`. This is implemented with `setTimeout` and a `Map` of timers so typing a long note doesn't write the database on every character.
+- Field types implemented pragmatically: `text`, `longtext`, `number`, `select`, `multiselect` (as comma-separated), `boolean` (simple toggle), and placeholders for `photo` and `gps` that integrate with the attachments repository. Photo/GPS call sites are intentionally small and documented — the real native camera/GPS implementation requires device testing and is left in a clearly-marked placeholder state so Phase 2 can be iterated safely.
+
+Why a component like this?
+- It demonstrates data-driven rendering (Section 2.1): the same renderer works for any template JSON you seed into `templates.schema_json`, which is the whole point of the exercise. The `key` prop used on the `.map()` entries keeps React from confusing one field for another when the list changes.
+
+### `src/repositories/answers.ts` — where field answers are stored
+
+- Exposes `getAnswers(inspectionId)` and `saveAnswer(inspectionId, fieldKey, value)`.
+- `saveAnswer` follows the project's repository rules: one transaction, set `updated_at`, insert-or-update the `answers` row, and append an `outbox` entry.
+- Autosave de-duplication: when updating an existing answer we delete any existing `outbox` rows for that answer and append a fresh `update` outbox entry. This keeps the outbox compact (no 200 rows for a 200-character note) while ensuring Phase 3 still has the latest state to send.
+
+Why the delete-then-insert approach?
+- It's simple, runs inside the same transaction, and ensures the outbox contains only the most recent pending state for that answer. Phase 3 could instead deduplicate when draining the queue; both approaches are acceptable — one must be chosen and documented (done here in `docs/DESIGN.md`).
+
+### `src/repositories/attachments.ts` — adding and removing photo/signature rows
+
+- Exposes `listAttachmentsForInspection(inspectionId)`, `createAttachment(...)` and `deleteAttachment(id)`.
+- `createAttachment` is designed to be called after the UI has written the compressed file to disk: it records `localUri`, `mimeType`, `byteSize`, dimensions, and appends an outbox `insert` entry inside the same transaction so Phase 3 can later upload the file and set `remote_url`.
+- `deleteAttachment` sets `deleted_at` (soft-delete) and appends an outbox `delete` note.
+
+Why files are created by the UI and only paths are stored in the DB
+- Storing bytes in SQLite is slow and memory-hungry. The file system is the right place for binary files; the DB stores the path and small metadata only.
+
+### `src/lib/validation.ts` — lightweight runtime schema checks
+
+- Phase 2 requires runtime validation derived from the template JSON. Rather than add a whole new dependency here (Zod), this Phase 2 work ships a small, explicit validator that understands `required`, `min`, `max`, `maxLength`, and `select` option membership.
+- `buildValidator(schema)` returns a `validate(answers)` function that returns an `errors` object mapping `fieldKey` to a short human-readable message. `inspections/[id].tsx` calls this before allowing the status to change to `completed` so visible validation errors block completion with a clear `Alert`.
+
+Trade-off: Zod vs small custom validator
+- Zod is a powerful, well-tested library and the plan explicitly recommends it. For safety in this environment (avoiding risky native dependency changes) a minimal validator here covers the Phase 2 acceptance criteria while keeping the repo install-free. If you prefer Zod, it's straightforward to replace `buildValidator` with a runtime Zod generator later; the code locations are small and well-documented.
+
+---
+
+End of Phase 2 BABY additions. Add more line-by-line explanations here as new small helper functions and components are introduced in the phase.
+
+### New symbols added in this session (media & signature)
+
+- src/lib/media.ts — takePhotoAndCompress, getLocationWithTimeout
+  - takePhotoAndCompress(inspectionId, fieldKey): opens the system camera (via expo-image-picker), resizes and compresses the captured image using expo-image-manipulator (target long edge ~1600px, quality ~0.7), writes the compressed file and a 200px thumbnail into documentDirectory/attachments/{inspectionId}/ and returns an object { localUri, mimeType, byteSize, width, height, thumbLocalUri }.
+  - getLocationWithTimeout(timeoutMs): requests foreground location permission (expo-location), races a getCurrentPositionAsync call against a timeout (default 10s), and returns { latitude, longitude, accuracy } or { error: "permission-denied" | "timeout" | "no-native" } so the app can degrade gracefully.
+  - Why dynamic imports: these helpers use dynamic import(...) so the web preview and CI do not crash when native expo packages are not installed. The code checks for permission-denied and missing-native-package cases and returns small error objects for the UI to handle.
+
+- src/components/SignaturePad.tsx — a guarded signature modal
+  - Presents a full-screen modal that dynamically imports react-native-signature-canvas and returns a base64 PNG when the user saves. When the package is not available the component shows a simple message so the caller can fallback to a placeholder behavior.
+  - The signature base64 is written to a PNG file under documentDirectory/attachments/{inspectionId}/signature-{fieldKey}-{id}.png when expo-file-system is available, then an attachment row is created in the DB via createAttachment(...).
+
+- src/components/FormRenderer.tsx (updates)
+  - FieldComponent: extracted and memoized so individual fields skip re-render when unrelated fields change. This is important for large (60-field) forms to stay smooth.
+  - scheduleSave and immediateSave are stabilized with React.useCallback so the memoized FieldComponent receives stable handler references and memoization actually works.
+  - Photo field now calls takePhotoAndCompress and persists the compressed file metadata through the attachments repository; when native packages or permissions are missing it falls back to the previous placeholder attachment behavior so web preview remains useful.
+  - GPS field calls getLocationWithTimeout and stores the returned { latitude, longitude, accuracy } as a JSON answer; on permission denial or missing native modules it falls back to a dummy value but does not block completion.
+  - Signature field opens SignaturePad; saved base64 is written to disk (if FileSystem available) and persisted as an attachment row. If native signature support is missing, the flow falls back to creating a placeholder attachment row.
+
+All of the new code is documented in docs/BABY-PHASE-2-MEDIA.md with beginner-friendly explanations and testing tips. Remember: when you change code, update this file with every new symbol so a reader with no experience can follow along — this is the teaching contract for the project.
