@@ -40,9 +40,88 @@ const CLIENT_NAMES = [
 ];
 
 const TEMPLATE_DEFS = [
-  { name: "General Site Safety Checklist", version: 1 },
-  { name: "Electrical Systems Inspection", version: 2 },
-  { name: "Fire & Life Safety Walkthrough", version: 1 },
+  {
+    id: "roof-inspection-v1",
+    name: "Roof Inspection",
+    version: 1,
+    schema: {
+      id: "roof-inspection-v1",
+      name: "Roof Inspection",
+      version: 1,
+      sections: [
+        {
+          id: "exterior",
+          title: "Exterior",
+          fields: [
+            {
+              key: "roof_condition",
+              type: "select",
+              label: "Roof condition",
+              required: true,
+              options: [
+                { value: "good", label: "Good" },
+                { value: "fair", label: "Fair" },
+                { value: "poor", label: "Poor" }
+              ]
+            },
+            {
+              key: "damage_photos",
+              type: "photo",
+              label: "Photograph the damage",
+              required: false,
+              maxCount: 5,
+              visibleIf: { field: "roof_condition", in: ["fair", "poor"] }
+            },
+            {
+              key: "roof_age",
+              type: "number",
+              label: "Approximate age (years)",
+              min: 0,
+              max: 200
+            }
+          ]
+        },
+        {
+          id: "interior",
+          title: "Interior",
+          fields: [
+            { key: "gutter_condition", type: "select", label: "Gutter condition", options: [{ value: "ok", label: "OK" }, { value: "blocked", label: "Blocked" }] },
+            { key: "notes", type: "longtext", label: "Notes" }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    id: "equipment-check-v1",
+    name: "Equipment Check",
+    version: 1,
+    schema: {
+      id: "equipment-check-v1",
+      name: "Equipment Check",
+      version: 1,
+      sections: [
+        {
+          id: "general",
+          title: "General",
+          fields: [
+            { key: "equipment_id", type: "text", label: "Equipment ID", required: true },
+            { key: "serial_number", type: "text", label: "Serial number" },
+            { key: "operational", type: "boolean", label: "Operational" }
+          ]
+        },
+        {
+          id: "measurements",
+          title: "Measurements",
+          fields: [
+            { key: "voltage", type: "number", label: "Voltage (V)", min: 0, max: 1000 },
+            { key: "temperature", type: "number", label: "Temperature (°C)", min: -50, max: 200 },
+            { key: "notes", type: "longtext", label: "Notes" }
+          ]
+        }
+      ]
+    }
+  }
 ];
 
 const STATUSES: InspectionStatus[] = ["draft", "in_progress", "completed", "submitted"];
@@ -105,17 +184,16 @@ export async function resetAndReseed(): Promise<{
   }));
 
   const seededTemplates = TEMPLATE_DEFS.map((t) => ({
-    id: newId(),
-    createdAt: daysAgo(90),
-    updatedAt: daysAgo(90),
-    deletedAt: null,
-    syncStatus: "local" as const,
-    name: t.name,
-    version: t.version,
-    // Placeholder shape for Phase 2's form renderer — Phase 1 never reads
-    // this, only displays `name`.
-    schemaJson: JSON.stringify({ fields: [] }),
-  }));
+      id: t.id ?? newId(),
+      createdAt: daysAgo(90),
+      updatedAt: daysAgo(90),
+      deletedAt: null,
+      syncStatus: "local" as const,
+      name: t.name,
+      version: t.version,
+      // Real template JSON for Phase 2's form renderer
+      schemaJson: JSON.stringify(t.schema),
+    }));
 
   await db.transaction(async (tx) => {
     await tx.insert(projects).values(seededProjects);

@@ -87,3 +87,15 @@ No cameras, no GPS, no photos, no forms with different field types, no internet 
 **Why the _real_ screens, not a separate pretend version:** a separate, hand-built stand-in screen would need someone to remember to update it, by hand, every single time the real screen changed — and the moment someone forgot, it would quietly start showing something misleading. Feeding pretend data into the _real_ screens instead means there is only ever one version of each screen to keep working, and it automatically keeps looking exactly like the real thing, forever, with no extra upkeep.
 
 **Where the line is drawn:** typing a new inspection's title, or ticking through its status, genuinely works in this mode — those are stored in a small pretend notebook that lives only in that one browser tab and empties the moment the page reloads. A few actions that would only make sense with a real database — like the developer-only outbox counter — are shown honestly as empty, rather than making up a number that would mean nothing.
+
+## Phase 2 — Dynamic form engine, Camera & GPS (summary)
+
+Phase 2 adds a template-driven form renderer, photo attachments, signature capture, and GPS stamping. Templates are JSON documents stored in the `templates.schema_json` column; the renderer reads that JSON at runtime and turns it into sections and fields. Answers are stored in the `answers` table (one row per field), attachments live in the `attachments` table with `local_uri` paths, and every mutation appends an `outbox` row so Phase 3 can sync later.
+
+Key runtime behaviors:
+- Templates are immutable by `key`: when you change a template in the future, create a new `version` rather than renaming field `key`s.
+- Hidden fields keep their answers but are excluded from validation — this prevents accidental data loss when conditional visibility toggles fields off.
+- Photos are stored as files on-disk; the database stores paths only. Thumbnails are stored alongside full images.
+- GPS capture records latitude, longitude and an `accuracy` in metres; a missing or poor-quality fix never blocks completing an inspection.
+
+See `docs/DESIGN.md` for the template format and `docs/TEST-RESULTS-PHASE-2.md` for the acceptance checklist and test cases.

@@ -234,11 +234,73 @@ export function createProject(input: Pick<NewProject, "name" | "clientName" | "a
   return row;
 }
 
+// Simple in-memory answers and attachments for preview mode
+type MockAnswer = {
+  id: string;
+  inspectionId: string;
+  fieldKey: string;
+  valueText?: string | null;
+  valueNumber?: number | null;
+  valueJson?: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
+let answersStore: MockAnswer[] = [];
+let attachmentsStore: any[] = [];
+
+export function getAnswers(inspectionId: string) {
+  return answersStore.filter((a) => a.inspectionId === inspectionId && !a.deletedAt);
+}
+
+export function saveAnswer(inspectionId: string, fieldKey: string, value: any) {
+  // upsert
+  const existing = answersStore.find((a) => a.inspectionId === inspectionId && a.fieldKey === fieldKey && !a.deletedAt);
+  const ts = now();
+  if (existing) {
+    existing.updatedAt = ts;
+    existing.valueText = value.text ?? null;
+    existing.valueNumber = value.number ?? null;
+    existing.valueJson = value.json ? JSON.stringify(value.json) : null;
+    return existing;
+  }
+  const row: MockAnswer = {
+    id: newId(),
+    inspectionId,
+    fieldKey,
+    valueText: value.text ?? null,
+    valueNumber: value.number ?? null,
+    valueJson: value.json ? JSON.stringify(value.json) : null,
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+  };
+  answersStore.push(row);
+  return row;
+}
+
+export function listAttachmentsForInspection(inspectionId: string) {
+  return attachmentsStore.filter((a) => a.inspectionId === inspectionId && !a.deletedAt);
+}
+
+export function createAttachment(args: any) {
+  const row = { id: newId(), createdAt: now(), updatedAt: now(), deletedAt: null, syncStatus: "local", ...args };
+  attachmentsStore.push(row);
+  return row;
+}
+
+export function deleteAttachment(id: string) {
+  attachmentsStore = attachmentsStore.map((a) => (a.id === id ? { ...a, deletedAt: now(), updatedAt: now() } : a));
+}
+
 /** Mirrors src/db/seed.ts#resetAndReseed for the mock store — same button, same effect, no real database. */
 export function resetAndReseed(): { projects: number; templates: number; inspections: number } {
   projectsStore = seedProjects();
   templatesStore = seedTemplates();
   inspectionsStore = seedInspections(projectsStore, templatesStore);
+  answersStore = [];
+  attachmentsStore = [];
   return {
     projects: projectsStore.length,
     templates: templatesStore.length,

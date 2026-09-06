@@ -9,8 +9,12 @@ import { Alert, Pressable, ScrollView, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 
 import { Screen, Text, Input, Button, Badge, EmptyState } from "@/components";
+import FormRenderer from "@/components/FormRenderer";
 import { useTheme } from "@/theme/ThemeProvider";
 import { getInspection, softDeleteInspection, updateInspection } from "@/repositories/inspections";
+import { getTemplate } from "@/repositories/templates";
+import { getAnswers } from "@/repositories/answers";
+import { buildValidator } from "@/lib/validation";
 import { getProject } from "@/repositories/projects";
 import { formatTimestamp } from "@/lib/time";
 import {
@@ -102,6 +106,34 @@ export default function InspectionDetailScreen() {
 
   const handleStatusChange = async (status: InspectionStatus) => {
     if (!inspection) return;
+
+    // If marking complete, validate template-driven answers first
+    if (status === "completed" && inspection.templateId) {
+      try {
+        const template = await getTemplate(inspection.templateId);
+        if (template) {
+          const parsed = JSON.parse(template.schemaJson);
+          const answers = await getAnswers(inspection.id);
+          const answersMap: Record<string, any> = {};
+          for (const a of answers) {
+            if (a.valueText !== null) answersMap[a.fieldKey] = a.valueText;
+            else if (a.valueNumber !== null) answersMap[a.fieldKey] = a.valueNumber;
+            else if (a.valueJson !== null) answersMap[a.fieldKey] = JSON.parse(a.valueJson);
+          }
+          const validate = buildValidator(parsed);
+          const errors = validate(answersMap);
+          if (Object.keys(errors).length > 0) {
+            Alert.alert("Validation failed", Object.entries(errors).map(([k, v]) => `${k}: ${v}`).join("\n"));
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("Validation error", e);
+        Alert.alert("Validation error", "Could not validate the form. Please try again.");
+        return;
+      }
+    }
+
     const updated = await updateInspection(inspection.id, { status });
     setInspection(updated);
   };
@@ -158,6 +190,11 @@ export default function InspectionDetailScreen() {
           numberOfLines={4}
           style={{ minHeight: 88, textAlignVertical: "top" }}
         />
+
+        {/* Dynamic form renderer (Phase 2) */}
+        {inspection?.templateId ? (
+          <FormRenderer inspectionId={inspection.id} templateId={inspection.templateId} />
+        ) : null}
 
         <View style={{ gap: theme.spacing.xs }}>
           <Text variant="label" muted>
