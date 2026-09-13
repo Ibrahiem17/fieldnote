@@ -93,9 +93,24 @@ No cameras, no GPS, no photos, no forms with different field types, no internet 
 Phase 2 adds a template-driven form renderer, photo attachments, signature capture, and GPS stamping. Templates are JSON documents stored in the `templates.schema_json` column; the renderer reads that JSON at runtime and turns it into sections and fields. Answers are stored in the `answers` table (one row per field), attachments live in the `attachments` table with `local_uri` paths, and every mutation appends an `outbox` row so Phase 3 can sync later.
 
 Key runtime behaviors:
+
 - Templates are immutable by `key`: when you change a template in the future, create a new `version` rather than renaming field `key`s.
 - Hidden fields keep their answers but are excluded from validation — this prevents accidental data loss when conditional visibility toggles fields off.
 - Photos are stored as files on-disk; the database stores paths only. Thumbnails are stored alongside full images.
 - GPS capture records latitude, longitude and an `accuracy` in metres; a missing or poor-quality fix never blocks completing an inspection.
 
 See `docs/DESIGN.md` for the template format and `docs/TEST-RESULTS-PHASE-2.md` for the acceptance checklist and test cases.
+
+## Phase 3, Day 1 — logging in, and why the app has a second "who are you" system now
+
+**What changed:** the app now asks you to sign in before showing anything. This has nothing to do with the phone's own database — it's a separate system for talking to a server, so that later (Day 2 onward) your inspections can travel to a shared copy other people or other devices can see.
+
+**A token, in plain words:** think of it like a wristband at a festival. You show your ticket once at the gate (your email and password); they give you a wristband. For the rest of the day, you show the wristband, not your ticket, to get into anything. The wristband expires after a while (about an hour here) so a stolen one isn't useful for long — but there's also a second, longer-lived pass that quietly gets you a fresh wristband without asking you to prove your identity all over again. That's the access token and the refresh token. None of this is code you have to manage by hand — the library does it in the background.
+
+**Why the phone keeps this wristband somewhere special:** on a phone, that's the same encrypted vault the operating system uses for other sensitive things — nobody else's apps can read it, and it survives a restart. That's `expo-secure-store`. On the web, phones don't have that vault, so the browser's own ordinary storage is used instead — less protected, but every website already works this way, and this app was never meant to be used seriously in a browser anyway (see the whole "Preview mode" story earlier in this file).
+
+**Row Level Security, as a plain idea:** imagine a filing cabinet with everyone's folders mixed together in one drawer, but a rule taped to the drawer that says "you may only ever pull out folders with your own name on them." It doesn't matter how the request is phrased or which app sends it — the rule lives on the cabinet itself, not on any one person's habits, so it can't be gotten around by simply asking a different way. That's what was actually tested here: not just "does the rule exist," but "if I genuinely try to reach into someone else's folder, does the cabinet actually stop me" — and it did, twice (reading someone else's row, and trying to insert a row while claiming to be them).
+
+**Why signing out doesn't erase anything on the phone:** signing out only takes back your wristband — it says nothing at all about the inspections already saved on this device, because those live in a completely separate system (the phone's own SQLite database) that this sign-out code never touches. An inspector should be able to sign out, hand the phone to a colleague to sign in as themselves, and still have their own morning's work sitting there untouched for when they sign back in.
+
+See `docs/SYNC.md` for the full, evolving sync protocol, and `docs/DESIGN.md` D-017/D-018 for why the server's clock (not the phone's) is the only one ever trusted to settle a disagreement, and for two real bugs found by actually trying to break this rather than just reading the rules.

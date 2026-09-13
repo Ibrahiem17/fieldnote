@@ -27,13 +27,44 @@ import { db, dbInitError } from "@/db/client";
 import migrations from "../../drizzle/migrations";
 import { ThemeProvider, useTheme } from "@/theme/ThemeProvider";
 import { Text } from "@/components";
+import { AuthProvider, useAuth } from "@/auth/AuthProvider";
+import LoginScreen from "@/auth/LoginScreen";
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <ThemeProvider>{dbInitError ? <PreviewModeApp /> : <MigrationGate />}</ThemeProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AuthGate />
+        </AuthProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
+}
+
+/**
+ * The outermost gate: nothing below this — not even preview mode — renders
+ * until we know whether there's a session. `loading` is only ever true for
+ * the brief moment AuthProvider is checking SecureStore for a session that
+ * survived an app restart (plan TC-03); after that it's a plain yes/no.
+ */
+function AuthGate() {
+  const { session, loading } = useAuth();
+  const theme = useTheme();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.bg }}>
+        <ActivityIndicator color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (!session) {
+    return <LoginScreen />;
+  }
+
+  return dbInitError ? <PreviewModeApp /> : <MigrationGate />;
 }
 
 const AppNavigator = () => (

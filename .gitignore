@@ -30,8 +30,13 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files — real secrets live only here, never committed
+.env
+.env.local
 .env*.local
+
+# Supabase CLI local state (auth token, linked project cache)
+.supabase/
 
 # typescript
 *.tsbuildinfo

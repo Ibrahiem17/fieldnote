@@ -840,3 +840,124 @@ The autosave code needs one small piece of state that isn't really _data the scr
 The problem: `useMemo` is meant for values React treats as **read-only snapshots** — computed once, then left alone until a dependency changes and it's computed fresh. Reaching in and mutating that snapshot's contents (`.set`, `.delete`) works today, but it's exactly the kind of thing a newer ESLint rule (`react-hooks/immutability`) is specifically built to catch, because it can misbehave under upcoming React optimizations that assume `useMemo` values are never touched after creation.
 
 `useRef` is the hook built for precisely this need: "give me a mutable box that survives re-renders, but changing what's inside it should never itself cause a re-render." `useRef(new Map())` creates that box once; `timersRef.current` is the actual `Map` inside it, and mutating _that_ — `timersRef.current.set(fieldKey, id)` — is exactly what refs are documented and expected to be used for. Nothing about the autosave behavior changed; only which hook is doing the holding.
+
+---
+
+## Phase 3, Day 1 — logging in
+
+### `src/lib/supabase.ts` — the one client, and a platform-conditional adapter
+
+```ts
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY. ...");
+}
+```
+
+`process.env.EXPO_PUBLIC_SUPABASE_URL` — Expo's build tooling reads `.env` at build/start time and makes any variable whose name starts with `EXPO_PUBLIC_` available here, baked into the JS bundle. The `EXPO_PUBLIC_` prefix is not decoration — it's the one signal Expo looks for to know "yes, it's safe and intended for this value to end up inside the app that ships to a phone," as opposed to a secret that should only ever exist on a server. That's exactly why only the URL and the anon/publishable key get this prefix — never the database password.
+
+Throwing immediately when either is missing, right at import time, is deliberate: without it, the app would boot, and the _first_ attempt to actually talk to Supabase (e.g. signing in) would fail with a confusing network error deep inside a library, far from the real cause. Failing loudly, immediately, at the one place the mistake actually happened, is easier to debug than failing quietly somewhere else later.
+
+```ts
+const secureStoreAdapter = {
+  getItem: (key: string) => SecureStore.getItemAsync(key),
+  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
+};
+```
+
+Supabase's client doesn't know what `expo-secure-store` is — it only knows how to talk to _any_ object with a `getItem`/`setItem`/`removeItem` shape (this pattern, wrapping one library's API to match the shape a different library expects, is called an **adapter**). `expo-secure-store`'s real functions are named `getItemAsync`/`setItemAsync`/`deleteItemAsync` — this object is a thin translation layer, renaming and re-wiring three function calls so Supabase can use them without knowing anything about SecureStore specifically.
+
+```ts
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storage: Platform.OS === "web" ? webStorageAdapter : secureStoreAdapter,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+});
+```
+
+`Platform.OS` is React Native's built-in way of asking "what am I actually running on right now?" — it's `"ios"`, `"android"`, or `"web"`, decided at runtime, not at build time, so the exact same compiled JavaScript can make a different choice on different devices. `Platform.OS === "web" ? webStorageAdapter : secureStoreAdapter` reads as "use the web-safe adapter only on web; every real phone uses the real encrypted one" — a ternary picking between two objects, not two different app builds.
+
+`autoRefreshToken: true` and `persistSession: true` are Supabase's own settings, not this app's code — they mean "when the short-lived access token is about to expire, quietly fetch a new one in the background," and "remember the session across restarts by writing it to whichever `storage` was configured above." `detectSessionInUrl: false` turns off a web-only feature (reading a session out of the page's own URL, used for magic-link/OAuth redirects) this app doesn't use, so it isn't left half-configured and unused.
+
+### `src/auth/AuthProvider.tsx` — the pattern, once more, applied to a new kind of state
+
+If `ThemeProvider` (theming) and `isDbAvailable()`/`requireDb()` (the database) both felt familiar, that's deliberate — this file is the exact same idea a third time: **one piece of shared state, owned by exactly one file, read everywhere else through one hook.**
+
+```ts
+const AuthContext = createContext<AuthState | null>(null);
+```
+
+`createContext` is a React feature for sharing a value with every component _underneath_ a `<Provider>` in the tree, without having to manually pass it down as a prop through every single component in between (imagine `Screen` → `Stack` → `Tab` → `SettingsScreen`, each one having to accept and forward a `session` prop it never actually uses itself — `Context` skips all of that). The `| null` starting value is what makes `useAuth()`'s safety check below possible — see next.
+
+```ts
+export function useAuth(): AuthState {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth() was called outside <AuthProvider> — check src/app/_layout.tsx");
+  }
+  return ctx;
+}
+```
+
+`useContext(AuthContext)` reads whatever value the nearest `<AuthContext.Provider>` above this component in the tree is currently holding. If nothing rendered a `<AuthProvider>` at all (a mistake, not a normal runtime state), `useContext` would just return the context's original `null` default — the `if (!ctx) throw` turns that silent `null` into a loud, specific error naming the exact fix, the moment it happens, rather than a mysterious "cannot read property of null" three function calls later inside whatever tried to use `ctx.session`.
+
+```ts
+useEffect(() => {
+  let cancelled = false;
+
+  supabase.auth.getSession().then(({ data }) => {
+    if (!cancelled) {
+      setSession(data.session);
+      setLoading(false);
+    }
+  });
+
+  const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    setSession(newSession);
+  });
+
+  return () => {
+    cancelled = true;
+    listener.subscription.unsubscribe();
+  };
+}, []);
+```
+
+Two separate things are set up here, and it matters that both exist. `getSession()` is a one-time check, run once when the app starts: "was there already a session saved from last time?" — this is the entire mechanism behind "force-quit and reopen: still logged in" (TC-03); nothing else in this file does anything special to make that true. `onAuthStateChange(...)` is different — it's a standing subscription that keeps firing for as long as the app runs, every time something _changes_: a sign-in, a sign-out, and critically, a silent background token refresh. Without this second part, `session` in this file's state would go stale the moment a token refreshed, even though the _real_, working session had already moved on.
+
+The `cancelled` flag and the `return () => { ... }` cleanup function are the same pattern already explained for `inspections.tsx`'s `load()` — guard against a slow response landing after this component isn't the current one anymore, and always tear down a subscription when it's no longer needed, so the app doesn't quietly accumulate listeners every time this provider happens to re-mount.
+
+### `src/app/_layout.tsx` — a third gate stacked on top of the first two
+
+```tsx
+function AuthGate() {
+  const { session, loading } = useAuth();
+  const theme = useTheme();
+
+  if (loading) {
+    /* spinner */
+  }
+  if (!session) {
+    return <LoginScreen />;
+  }
+  return dbInitError ? <PreviewModeApp /> : <MigrationGate />;
+}
+```
+
+This is the exact same idea as `MigrationGate`/`PreviewModeApp` (explained earlier in this file) — a component that renders one of several possible things depending on a piece of state, checked in order. Here there are three states to consider, checked top to bottom: still checking for a saved session (`loading`) → definitely no session (`!session`, show the login screen) → there is a session, so fall through to the exact same `dbInitError` check every earlier phase already used. Login is checked _first_, outside and above everything else, so no other screen in the app — not even the preview-mode fallback — can ever accidentally render before we know who (if anyone) is signed in.
+
+### `src/app/(tabs)/settings.tsx` — reading the signed-in user's own email
+
+```tsx
+const { session, signOut } = useAuth();
+...
+<Text style={{ marginTop: theme.spacing.sm }}>{session?.user.email}</Text>
+```
+
+`session` here is exactly the same object `AuthProvider` stores — a Supabase `Session`, which carries a `user` object with the account's own `email` on it. `session?.user.email` — the `?.` (optional chaining, already explained elsewhere in this file) guards against `session` briefly being `null` during a render that happens to slip in between sign-out and the screen actually being unmounted, so this line reads "the signed-in user's email, or nothing at all, never a crash."

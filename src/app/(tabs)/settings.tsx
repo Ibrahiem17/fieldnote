@@ -14,11 +14,14 @@ import { resetAndReseed } from "@/db/seed";
 import { listProjects } from "@/repositories/projects";
 import { listInspections } from "@/repositories/inspections";
 import { countOutboxEntries } from "@/repositories/outbox";
+import { useAuth } from "@/auth/AuthProvider";
 
 export default function SettingsScreen() {
   const theme = useTheme();
+  const { session, signOut } = useAuth();
   const [counts, setCounts] = useState({ projects: 0, inspections: 0, outbox: 0 });
   const [reseeding, setReseeding] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const refreshCounts = useCallback(async () => {
     const [projects, inspections, outboxTotal] = await Promise.all([
@@ -69,6 +72,30 @@ export default function SettingsScreen() {
     <Screen>
       <View style={{ gap: theme.spacing.md }}>
         <Text variant="title">Settings</Text>
+
+        <Card>
+          <Text variant="label" muted>
+            Account
+          </Text>
+          <Text style={{ marginTop: theme.spacing.sm }}>{session?.user.email}</Text>
+          <Text variant="caption" muted style={{ marginBottom: theme.spacing.sm }}>
+            Signing out clears your session only — every inspection already on this phone stays
+            right here (plan Section 3.1.3).
+          </Text>
+          <Button
+            label="Sign Out"
+            variant="secondary"
+            loading={signingOut}
+            onPress={async () => {
+              setSigningOut(true);
+              try {
+                await signOut();
+              } finally {
+                setSigningOut(false);
+              }
+            }}
+          />
+        </Card>
 
         <Card>
           <Text variant="label" muted>
