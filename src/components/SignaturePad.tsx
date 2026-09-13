@@ -1,7 +1,15 @@
 import React from "react";
-import { View, Modal, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import { View, Modal, StyleSheet, ActivityIndicator, Alert, Text } from "react-native";
 
-export default function SignaturePad({ visible, onSave, onCancel }: { visible: boolean; onSave: (base64: string) => void; onCancel: () => void }) {
+export default function SignaturePad({
+  visible,
+  onSave,
+  onCancel,
+}: {
+  visible: boolean;
+  onSave: (base64: string) => void;
+  onCancel: () => void;
+}) {
   const [loaded, setLoaded] = React.useState(false);
   const [SignatureView, setSignatureView] = React.useState<any>(null);
 
@@ -31,7 +39,7 @@ export default function SignaturePad({ visible, onSave, onCancel }: { visible: b
         {!loaded && <ActivityIndicator size="large" />}
         {loaded && SignatureView ? (
           <SignatureView
-            onOK={(sig) => {
+            onOK={(sig: string) => {
               // sig is a base64 png data URL or raw base64 depending on lib
               // Normalize: if it starts with data:, strip header
               const data = sig?.startsWith?.("data:") ? sig.split(",")[1] : sig;
@@ -43,12 +51,14 @@ export default function SignaturePad({ visible, onSave, onCancel }: { visible: b
             clearText={"Clear"}
             confirmText={"Save"}
             webStyle={`.m-signature-pad--footer {display: none; margin: 0px;}`}
-            />
+          />
         ) : null}
         {loaded && !SignatureView ? (
-          // Fallback: show a message — the caller should fallback to placeholder
+          // Fallback: show a message — the caller should fallback to placeholder.
+          // (`Alert` is react-native's imperative dialog API — `Alert.alert(...)` —
+          // not a component, so it can't be rendered as JSX; a plain Text does the job.)
           <View style={{ padding: 16 }}>
-            <Alert title="Signature not available" />
+            <Text>Signature not available on this platform.</Text>
           </View>
         ) : null}
       </View>

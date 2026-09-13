@@ -737,6 +737,7 @@ The Phase 2 work adds a small set of files to make templates render into data-dr
 - Field types implemented pragmatically: `text`, `longtext`, `number`, `select`, `multiselect` (as comma-separated), `boolean` (simple toggle), and placeholders for `photo` and `gps` that integrate with the attachments repository. Photo/GPS call sites are intentionally small and documented — the real native camera/GPS implementation requires device testing and is left in a clearly-marked placeholder state so Phase 2 can be iterated safely.
 
 Why a component like this?
+
 - It demonstrates data-driven rendering (Section 2.1): the same renderer works for any template JSON you seed into `templates.schema_json`, which is the whole point of the exercise. The `key` prop used on the `.map()` entries keeps React from confusing one field for another when the list changes.
 
 ### `src/repositories/answers.ts` — where field answers are stored
@@ -746,6 +747,7 @@ Why a component like this?
 - Autosave de-duplication: when updating an existing answer we delete any existing `outbox` rows for that answer and append a fresh `update` outbox entry. This keeps the outbox compact (no 200 rows for a 200-character note) while ensuring Phase 3 still has the latest state to send.
 
 Why the delete-then-insert approach?
+
 - It's simple, runs inside the same transaction, and ensures the outbox contains only the most recent pending state for that answer. Phase 3 could instead deduplicate when draining the queue; both approaches are acceptable — one must be chosen and documented (done here in `docs/DESIGN.md`).
 
 ### `src/repositories/attachments.ts` — adding and removing photo/signature rows
@@ -755,6 +757,7 @@ Why the delete-then-insert approach?
 - `deleteAttachment` sets `deleted_at` (soft-delete) and appends an outbox `delete` note.
 
 Why files are created by the UI and only paths are stored in the DB
+
 - Storing bytes in SQLite is slow and memory-hungry. The file system is the right place for binary files; the DB stores the path and small metadata only.
 
 ### `src/lib/validation.ts` — lightweight runtime schema checks
@@ -763,6 +766,7 @@ Why files are created by the UI and only paths are stored in the DB
 - `buildValidator(schema)` returns a `validate(answers)` function that returns an `errors` object mapping `fieldKey` to a short human-readable message. `inspections/[id].tsx` calls this before allowing the status to change to `completed` so visible validation errors block completion with a clear `Alert`.
 
 Trade-off: Zod vs small custom validator
+
 - Zod is a powerful, well-tested library and the plan explicitly recommends it. For safety in this environment (avoiding risky native dependency changes) a minimal validator here covers the Phase 2 acceptance criteria while keeping the repo install-free. If you prefer Zod, it's straightforward to replace `buildValidator` with a runtime Zod generator later; the code locations are small and well-documented.
 
 ---
@@ -788,3 +792,51 @@ End of Phase 2 BABY additions. Add more line-by-line explanations here as new sm
   - Signature field opens SignaturePad; saved base64 is written to disk (if FileSystem available) and persisted as an attachment row. If native signature support is missing, the flow falls back to creating a placeholder attachment row.
 
 All of the new code is documented in docs/BABY-PHASE-2-MEDIA.md with beginner-friendly explanations and testing tips. Remember: when you change code, update this file with every new symbol so a reader with no experience can follow along — this is the teaching contract for the project.
+
+---
+
+## Fixing the Phase 2 merge (2026-09-13) — new symbols and patterns
+
+The Phase 2 code above was merged from outside this project's usual sessions and, on actually running `npm run typecheck`/`npm run lint` (see `docs/DESIGN.md` D-016), didn't pass. Fixing it introduced a few new ideas worth explaining.
+
+### `expo-file-system`'s new class-based API
+
+```ts
+const { Directory, File, Paths } = await import("expo-file-system");
+const folder = new Directory(Paths.document, "attachments", inspectionId);
+folder.create({ intermediates: true, idempotent: true });
+const dest = new File(folder, `${fieldKey}-${id}.jpg`);
+await new File(manipResult.uri).copy(dest);
+```
+
+Older versions of `expo-file-system` worked with plain path strings and standalone functions (`FileSystem.documentDirectory`, `FileSystem.writeAsStringAsync(path, ...)`). The version this project actually has installed replaced that with **objects that represent a file or folder** — `new Directory(...)` and `new File(...)` — and methods that live _on_ those objects instead of taking a path string as an argument. `Paths.document` is a ready-made `Directory` object pointing at the app's private document storage; passing it as the first argument to `new Directory(Paths.document, "attachments", inspectionId)` means "a subfolder of the document directory, named `attachments/<that inspection's id>`" — the constructor joins the pieces for you. `folder.create({ intermediates: true, idempotent: true })` makes that folder exist: `intermediates` means "create parent folders too if they're missing," and `idempotent` means "don't throw an error if the folder is already there" — both matter because this code runs every time a photo is taken, not just the first time. `new File(folder, "name.jpg")` builds a reference to a file _inside_ that folder, and `.copy(destination)` copies one file's contents to another file's location — here, moving the temporary compressed image the image-manipulation library produced into this app's own permanent folder.
+
+**Why this matters beyond just fixing an error:** `AGENTS.md` at the top of this project says, in effect, "check the exact current docs before writing Expo code, because APIs change between SDK versions." This is the concrete example of why: the exact same _idea_ ("save this file, in this folder") is expressed in a structurally different way a few SDK versions later, and code written against the old shape doesn't just work slightly differently — it fails to even compile, because the old function names no longer exist at all.
+
+### `isFieldVisible()` — the fix for a field that rendered when it should have been hidden
+
+```ts
+function isFieldVisible(field: any, answers: Record<string, any>): boolean {
+  if (!field.visibleIf) return true;
+  const other = answers[field.visibleIf.field];
+  return Boolean(other) && Boolean(field.visibleIf.in?.includes(other));
+}
+```
+
+A template field can carry a `visibleIf` rule — for example, "only show `damage_photos` when `roof_condition` is `fair` or `poor`." `src/lib/validation.ts` already had a version of this check, but only for validation (skip a hidden field when deciding if the form is complete) — nothing was using the same rule to actually decide what to _draw on screen_, so a hidden field wasn't hidden at all, it just wasn't required.
+
+Reading it line by line: `if (!field.visibleIf) return true` — a field with no rule at all is always visible, the common case. `answers[field.visibleIf.field]` looks up the _other_ field's current answer (e.g. whatever `roof_condition` is currently set to). `field.visibleIf.in?.includes(other)` checks whether that current value is in the rule's allowed list — the `?.` (optional chaining) guards against a rule that doesn't have an `in` list at all, so this doesn't crash on other `visibleIf` shapes the type technically allows. Wrapping both checks in `Boolean(...)` guarantees the function always returns a real `true`/`false`, never `undefined` from a missing lookup — useful because this return value feeds straight into an array's `.filter(...)`, which expects a boolean back, not "something falsy."
+
+This function is then used as: `section.fields.filter((field) => isFieldVisible(field, answersMap)).map(...)` — filtering the list of fields _before_ turning them into components, so a hidden field genuinely never renders, rather than rendering and somehow being invisible.
+
+### Why the autosave timers moved from `useMemo` to `useRef`
+
+```ts
+const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+```
+
+The autosave code needs one small piece of state that isn't really _data the screen displays_ — it's bookkeeping: "is there already a pending save for this field, and if so, what's its timer ID so I can cancel it?" The original code built this `Map` with `useMemo(() => new Map(), [])`, then called `.set(...)`/`.delete(...)` on it directly from inside event handlers.
+
+The problem: `useMemo` is meant for values React treats as **read-only snapshots** — computed once, then left alone until a dependency changes and it's computed fresh. Reaching in and mutating that snapshot's contents (`.set`, `.delete`) works today, but it's exactly the kind of thing a newer ESLint rule (`react-hooks/immutability`) is specifically built to catch, because it can misbehave under upcoming React optimizations that assume `useMemo` values are never touched after creation.
+
+`useRef` is the hook built for precisely this need: "give me a mutable box that survives re-renders, but changing what's inside it should never itself cause a re-render." `useRef(new Map())` creates that box once; `timersRef.current` is the actual `Map` inside it, and mutating _that_ — `timersRef.current.set(fieldKey, id)` — is exactly what refs are documented and expected to be used for. Nothing about the autosave behavior changed; only which hook is doing the holding.

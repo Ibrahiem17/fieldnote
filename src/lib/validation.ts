@@ -5,7 +5,7 @@
 
 export type TemplateField = any;
 
-export function buildValidator(schema: { sections: Array<{ fields: TemplateField[] }> }) {
+export function buildValidator(schema: { sections: { fields: TemplateField[] }[] }) {
   // Returns a function that accepts a map of answers (fieldKey -> value)
   // and returns an object of errors: { fieldKey: "error message" }
   return function validate(answers: Record<string, any>) {
@@ -24,7 +24,8 @@ export function buildValidator(schema: { sections: Array<{ fields: TemplateField
 
         const v = answers[field.key];
         if (field.required) {
-          const isEmpty = v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
+          const isEmpty =
+            v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
           if (isEmpty) {
             errors[field.key] = "Required";
             continue;
@@ -47,7 +48,10 @@ export function buildValidator(schema: { sections: Array<{ fields: TemplateField
           }
         }
 
-        if ((field.type === "text" || field.type === "longtext") && typeof field.maxLength === "number") {
+        if (
+          (field.type === "text" || field.type === "longtext") &&
+          typeof field.maxLength === "number"
+        ) {
           const len = typeof v === "string" ? v.length : 0;
           if (len > field.maxLength) {
             errors[field.key] = `Maximum ${field.maxLength} characters`;

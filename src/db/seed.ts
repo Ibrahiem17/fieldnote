@@ -16,6 +16,7 @@ import { newId } from "@/lib/id";
 import { now } from "@/lib/time";
 import type { InspectionStatus } from "./schema";
 import * as mock from "./mockStore";
+import { TEMPLATE_DEFS } from "./templateDefs";
 
 const PROJECT_NAMES = [
   "Riverside Distribution Center",
@@ -37,91 +38,6 @@ const CLIENT_NAMES = [
   "Oakfield Energy",
   "Pinehill Municipal Utilities",
   "Summit Cloud Partners",
-];
-
-const TEMPLATE_DEFS = [
-  {
-    id: "roof-inspection-v1",
-    name: "Roof Inspection",
-    version: 1,
-    schema: {
-      id: "roof-inspection-v1",
-      name: "Roof Inspection",
-      version: 1,
-      sections: [
-        {
-          id: "exterior",
-          title: "Exterior",
-          fields: [
-            {
-              key: "roof_condition",
-              type: "select",
-              label: "Roof condition",
-              required: true,
-              options: [
-                { value: "good", label: "Good" },
-                { value: "fair", label: "Fair" },
-                { value: "poor", label: "Poor" }
-              ]
-            },
-            {
-              key: "damage_photos",
-              type: "photo",
-              label: "Photograph the damage",
-              required: false,
-              maxCount: 5,
-              visibleIf: { field: "roof_condition", in: ["fair", "poor"] }
-            },
-            {
-              key: "roof_age",
-              type: "number",
-              label: "Approximate age (years)",
-              min: 0,
-              max: 200
-            }
-          ]
-        },
-        {
-          id: "interior",
-          title: "Interior",
-          fields: [
-            { key: "gutter_condition", type: "select", label: "Gutter condition", options: [{ value: "ok", label: "OK" }, { value: "blocked", label: "Blocked" }] },
-            { key: "notes", type: "longtext", label: "Notes" }
-          ]
-        }
-      ]
-    }
-  },
-  {
-    id: "equipment-check-v1",
-    name: "Equipment Check",
-    version: 1,
-    schema: {
-      id: "equipment-check-v1",
-      name: "Equipment Check",
-      version: 1,
-      sections: [
-        {
-          id: "general",
-          title: "General",
-          fields: [
-            { key: "equipment_id", type: "text", label: "Equipment ID", required: true },
-            { key: "serial_number", type: "text", label: "Serial number" },
-            { key: "operational", type: "boolean", label: "Operational" }
-          ]
-        },
-        {
-          id: "measurements",
-          title: "Measurements",
-          fields: [
-            { key: "voltage", type: "number", label: "Voltage (V)", min: 0, max: 1000 },
-            { key: "temperature", type: "number", label: "Temperature (°C)", min: -50, max: 200 },
-            { key: "notes", type: "longtext", label: "Notes" }
-          ]
-        }
-      ]
-    }
-  }
 ];
 
 const STATUSES: InspectionStatus[] = ["draft", "in_progress", "completed", "submitted"];
@@ -184,16 +100,16 @@ export async function resetAndReseed(): Promise<{
   }));
 
   const seededTemplates = TEMPLATE_DEFS.map((t) => ({
-      id: t.id ?? newId(),
-      createdAt: daysAgo(90),
-      updatedAt: daysAgo(90),
-      deletedAt: null,
-      syncStatus: "local" as const,
-      name: t.name,
-      version: t.version,
-      // Real template JSON for Phase 2's form renderer
-      schemaJson: JSON.stringify(t.schema),
-    }));
+    id: t.id ?? newId(),
+    createdAt: daysAgo(90),
+    updatedAt: daysAgo(90),
+    deletedAt: null,
+    syncStatus: "local" as const,
+    name: t.name,
+    version: t.version,
+    // Real template JSON for Phase 2's form renderer
+    schemaJson: JSON.stringify(t.schema),
+  }));
 
   await db.transaction(async (tx) => {
     await tx.insert(projects).values(seededProjects);

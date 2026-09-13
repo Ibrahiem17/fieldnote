@@ -26,6 +26,7 @@ import type {
   NewInspection,
   InspectionStatus,
 } from "./schema";
+import { TEMPLATE_DEFS } from "./templateDefs";
 
 function daysAgo(days: number): number {
   return now() - days * 24 * 60 * 60 * 1000;
@@ -76,30 +77,23 @@ function seedProjects(): Project[] {
 }
 
 function seedTemplates(): Template[] {
-  // Names match src/db/seed.ts's real TEMPLATE_DEFS (found out of sync during
-  // Phase 1's web-preview test pass — see docs/DESIGN.md D-013 addendum).
-  return [
-    {
-      id: "mock-template-1",
-      createdAt: daysAgo(60),
-      updatedAt: daysAgo(60),
-      deletedAt: null,
-      syncStatus: "local",
-      name: "General Site Safety Checklist",
-      version: 1,
-      schemaJson: JSON.stringify({ fields: [] }),
-    },
-    {
-      id: "mock-template-2",
-      createdAt: daysAgo(60),
-      updatedAt: daysAgo(60),
-      deletedAt: null,
-      syncStatus: "local",
-      name: "Electrical Systems Inspection",
-      version: 2,
-      schemaJson: JSON.stringify({ fields: [] }),
-    },
-  ];
+  // Reuses the exact same schema seed.ts seeds into the real database
+  // (src/db/templateDefs.ts) — see that file's header comment for why this
+  // used to be a second, separately-written copy that drifted out of sync
+  // twice: once on template names (docs/DESIGN.md D-014), then worse, on the
+  // schema shape itself (empty `{ fields: [] }` instead of real `sections`,
+  // which crashed FormRenderer.tsx the moment an inspection was opened in
+  // the web preview).
+  return TEMPLATE_DEFS.map((t) => ({
+    id: `mock-template-${t.id}`,
+    createdAt: daysAgo(60),
+    updatedAt: daysAgo(60),
+    deletedAt: null,
+    syncStatus: "local" as const,
+    name: t.name,
+    version: t.version,
+    schemaJson: JSON.stringify(t.schema),
+  }));
 }
 
 function seedInspections(projectList: Project[], templateList: Template[]): Inspection[] {
@@ -239,12 +233,13 @@ type MockAnswer = {
   id: string;
   inspectionId: string;
   fieldKey: string;
-  valueText?: string | null;
-  valueNumber?: number | null;
-  valueJson?: string | null;
+  valueText: string | null;
+  valueNumber: number | null;
+  valueJson: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
+  syncStatus: string;
 };
 
 let answersStore: MockAnswer[] = [];
@@ -256,7 +251,9 @@ export function getAnswers(inspectionId: string) {
 
 export function saveAnswer(inspectionId: string, fieldKey: string, value: any) {
   // upsert
-  const existing = answersStore.find((a) => a.inspectionId === inspectionId && a.fieldKey === fieldKey && !a.deletedAt);
+  const existing = answersStore.find(
+    (a) => a.inspectionId === inspectionId && a.fieldKey === fieldKey && !a.deletedAt,
+  );
   const ts = now();
   if (existing) {
     existing.updatedAt = ts;
@@ -275,6 +272,7 @@ export function saveAnswer(inspectionId: string, fieldKey: string, value: any) {
     createdAt: ts,
     updatedAt: ts,
     deletedAt: null,
+    syncStatus: "local",
   };
   answersStore.push(row);
   return row;
@@ -285,13 +283,22 @@ export function listAttachmentsForInspection(inspectionId: string) {
 }
 
 export function createAttachment(args: any) {
-  const row = { id: newId(), createdAt: now(), updatedAt: now(), deletedAt: null, syncStatus: "local", ...args };
+  const row = {
+    id: newId(),
+    createdAt: now(),
+    updatedAt: now(),
+    deletedAt: null,
+    syncStatus: "local",
+    ...args,
+  };
   attachmentsStore.push(row);
   return row;
 }
 
 export function deleteAttachment(id: string) {
-  attachmentsStore = attachmentsStore.map((a) => (a.id === id ? { ...a, deletedAt: now(), updatedAt: now() } : a));
+  attachmentsStore = attachmentsStore.map((a) =>
+    a.id === id ? { ...a, deletedAt: now(), updatedAt: now() } : a,
+  );
 }
 
 /** Mirrors src/db/seed.ts#resetAndReseed for the mock store — same button, same effect, no real database. */

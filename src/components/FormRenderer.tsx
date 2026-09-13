@@ -5,12 +5,16 @@
 // pragmatic way while keeping the code readable for a beginner (BABY.md will
 // explain every symbol added in this file).
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Pressable, Alert, Linking } from "react-native";
 import { Text, Input, Button } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { getAnswers, saveAnswer } from "@/repositories/answers";
-import { listAttachmentsForInspection, createAttachment, deleteAttachment } from "@/repositories/attachments";
+import {
+  listAttachmentsForInspection,
+  createAttachment,
+  deleteAttachment,
+} from "@/repositories/attachments";
 import { getTemplate } from "@/repositories/templates";
 import { takePhotoAndCompress, getLocationWithTimeout } from "@/lib/media";
 import SignaturePad from "@/components/SignaturePad";
@@ -19,12 +23,23 @@ type TemplateSchema = {
   id: string;
   name: string;
   version: number;
-  sections: Array<{
+  sections: {
     id: string;
     title: string;
-    fields: Array<any>;
-  }>;
+    fields: any[];
+  }[];
 };
+
+// Same `visibleIf` check `src/lib/validation.ts` uses to decide whether a
+// hidden field should be skipped during validation — kept here too so a
+// field that's hidden is actually hidden on screen, not just excluded from
+// the completion check. The two must agree: a field that's rendered but not
+// validated (or the reverse) would be a confusing, hard-to-explain bug.
+function isFieldVisible(field: any, answers: Record<string, any>): boolean {
+  if (!field.visibleIf) return true;
+  const other = answers[field.visibleIf.field];
+  return Boolean(other) && Boolean(field.visibleIf.in?.includes(other));
+}
 
 // Move FieldComponent outside the main function so it can be memoized reliably.
 const FieldComponent = React.memo(function FieldComponent(props: {
@@ -35,8 +50,18 @@ const FieldComponent = React.memo(function FieldComponent(props: {
   onScheduleSave: (k: string, v: any) => void;
   onImmediateSave: (k: string, v: any) => Promise<void>;
   setAttachments: React.Dispatch<React.SetStateAction<Record<string, any[]>>>;
+  onOpenSignature: (fieldKey: string) => void;
 }) {
-  const { field, value, inspectionId, attachmentsForField, onScheduleSave, onImmediateSave, setAttachments } = props;
+  const {
+    field,
+    value,
+    inspectionId,
+    attachmentsForField,
+    onScheduleSave,
+    onImmediateSave,
+    setAttachments,
+    onOpenSignature,
+  } = props;
   const v = value ?? "";
   const theme = useTheme();
 
@@ -78,7 +103,12 @@ const FieldComponent = React.memo(function FieldComponent(props: {
         <Input
           label={field.label + " (comma-separated)"}
           value={Array.isArray(v) ? v.join(", ") : String(v)}
-          onChangeText={(t) => onScheduleSave(field.key, t.split(",").map((s) => s.trim()))}
+          onChangeText={(t) =>
+            onScheduleSave(
+              field.key,
+              t.split(",").map((s) => s.trim()),
+            )
+          }
           onBlur={() => onImmediateSave(field.key, v)}
         />
       );
@@ -91,7 +121,11 @@ const FieldComponent = React.memo(function FieldComponent(props: {
               const next = !Boolean(v);
               onScheduleSave(field.key, next ? 1 : 0);
             }}
-            style={{ padding: theme.spacing.xs, borderRadius: 6, backgroundColor: theme.colors.surface }}
+            style={{
+              padding: theme.spacing.xs,
+              borderRadius: 6,
+              backgroundColor: theme.colors.surface,
+            }}
           >
             <Text>{Boolean(v) ? "Yes" : "No"}</Text>
           </Pressable>
@@ -107,10 +141,14 @@ const FieldComponent = React.memo(function FieldComponent(props: {
               try {
                 const res = await takePhotoAndCompress(inspectionId, field.key);
                 if (res && (res as any).error === "permission-denied") {
-                  Alert.alert("Camera permission", "Camera permission was denied. Open Settings to enable it.", [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Open Settings", onPress: () => Linking.openSettings() },
-                  ]);
+                  Alert.alert(
+                    "Camera permission",
+                    "Camera permission was denied. Open Settings to enable it.",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Open Settings", onPress: () => Linking.openSettings() },
+                    ],
+                  );
                   return;
                 }
 
@@ -125,7 +163,10 @@ const FieldComponent = React.memo(function FieldComponent(props: {
                     width: 800,
                     height: 600,
                   });
-                  setAttachments((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? []).concat(att) }));
+                  setAttachments((prev) => ({
+                    ...prev,
+                    [field.key]: (prev[field.key] ?? []).concat(att),
+                  }));
                   return;
                 }
 
@@ -141,7 +182,10 @@ const FieldComponent = React.memo(function FieldComponent(props: {
                 });
                 // store thumbnail path only in the UI object for display
                 (att as any).thumbLocalUri = r.thumbLocalUri;
-                setAttachments((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? []).concat(att) }));
+                setAttachments((prev) => ({
+                  ...prev,
+                  [field.key]: (prev[field.key] ?? []).concat(att),
+                }));
               } catch (e) {
                 console.error(e);
               }
@@ -149,23 +193,45 @@ const FieldComponent = React.memo(function FieldComponent(props: {
           />
           {(attachmentsForField ?? []).map((a) => (
             <View key={a.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text>{a.localUri}{(a as any).thumbLocalUri ? ` (thumb: ${(a as any).thumbLocalUri})` : ""}</Text>
-              <Button label="Delete" variant="danger" onPress={async () => {
-                try {
-                  // attempt to remove files from disk when FileSystem is available
+              <Text>
+                {a.localUri}
+                {(a as any).thumbLocalUri ? ` (thumb: ${(a as any).thumbLocalUri})` : ""}
+              </Text>
+              <Button
+                label="Delete"
+                variant="danger"
+                onPress={async () => {
                   try {
-                    const FileSystem = await import('expo-file-system');
-                    if (a.localUri) await FileSystem.deleteAsync(a.localUri, { idempotent: true }).catch(() => {});
-                    if ((a as any).thumbLocalUri) await FileSystem.deleteAsync((a as any).thumbLocalUri, { idempotent: true }).catch(() => {});
-                  } catch (err) {
-                    // ignore if expo-file-system not installed
+                    // attempt to remove files from disk when FileSystem is available
+                    try {
+                      const { File } = await import("expo-file-system");
+                      if (a.localUri) {
+                        try {
+                          new File(a.localUri).delete();
+                        } catch {
+                          // already gone, or not a real file (e.g. the web placeholder path) — fine either way
+                        }
+                      }
+                      if ((a as any).thumbLocalUri) {
+                        try {
+                          new File((a as any).thumbLocalUri).delete();
+                        } catch {
+                          // same as above
+                        }
+                      }
+                    } catch {
+                      // ignore if expo-file-system not installed
+                    }
+                    await deleteAttachment(a.id);
+                    setAttachments((prev) => ({
+                      ...prev,
+                      [field.key]: (prev[field.key] ?? []).filter((x) => x.id !== a.id),
+                    }));
+                  } catch (e) {
+                    console.error(e);
                   }
-                  await deleteAttachment(a.id);
-                  setAttachments((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? []).filter((x) => x.id !== a.id) }));
-                } catch (e) {
-                  console.error(e);
-                }
-              }} />
+                }}
+              />
             </View>
           ))}
         </View>
@@ -174,31 +240,46 @@ const FieldComponent = React.memo(function FieldComponent(props: {
       return (
         <View style={{ gap: theme.spacing.xs }}>
           <Text variant="label">{field.label}</Text>
-          <Button label="Capture location" onPress={async () => {
-            try {
-              const pos = await getLocationWithTimeout(10000);
-              if ((pos as any).error === "permission-denied") {
-                Alert.alert("Location permission", "Location permission was denied. Open Settings to enable it.", [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Open Settings", onPress: () => Linking.openSettings() },
-                ]);
-                return;
-              }
-              if ((pos as any).error) {
-                // fallback dummy when native not available
-                const dummy = { latitude: 12.34, longitude: 56.78, accuracy: 9999 };
-                onScheduleSave(field.key, dummy);
-                await onImmediateSave(field.key, dummy);
-                return;
-              }
+          <Button
+            label="Capture location"
+            onPress={async () => {
+              try {
+                const pos = await getLocationWithTimeout(10000);
+                if ((pos as any).error === "permission-denied") {
+                  Alert.alert(
+                    "Location permission",
+                    "Location permission was denied. Open Settings to enable it.",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Open Settings", onPress: () => Linking.openSettings() },
+                    ],
+                  );
+                  return;
+                }
+                if ((pos as any).error) {
+                  // fallback dummy when native not available
+                  const dummy = { latitude: 12.34, longitude: 56.78, accuracy: 9999 };
+                  onScheduleSave(field.key, dummy);
+                  await onImmediateSave(field.key, dummy);
+                  return;
+                }
 
-              const p = pos as any;
-              onScheduleSave(field.key, { latitude: p.latitude, longitude: p.longitude, accuracy: p.accuracy });
-              await onImmediateSave(field.key, { latitude: p.latitude, longitude: p.longitude, accuracy: p.accuracy });
-            } catch (e) {
-              console.error(e);
-            }
-          }} />
+                const p = pos as any;
+                onScheduleSave(field.key, {
+                  latitude: p.latitude,
+                  longitude: p.longitude,
+                  accuracy: p.accuracy,
+                });
+                await onImmediateSave(field.key, {
+                  latitude: p.latitude,
+                  longitude: p.longitude,
+                  accuracy: p.accuracy,
+                });
+              } catch (e) {
+                console.error(e);
+              }
+            }}
+          />
           {value ? <Text>{JSON.stringify(value)}</Text> : null}
         </View>
       );
@@ -206,21 +287,31 @@ const FieldComponent = React.memo(function FieldComponent(props: {
       return (
         <View style={{ gap: theme.spacing.xs }}>
           <Text variant="label">{field.label}</Text>
-          <Button label="Capture signature" onPress={async () => {
-            // open modal with SignaturePad; the pad will call back with base64
-            setSignatureModal({ fieldKey: field.key });
-          }} />
+          <Button
+            label="Capture signature"
+            onPress={() => {
+              // open modal with SignaturePad; the pad will call back with base64
+              onOpenSignature(field.key);
+            }}
+          />
           {(attachmentsForField ?? []).map((a) => (
             <View key={a.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <Text>{a.localUri}</Text>
-              <Button label="Delete" variant="danger" onPress={async () => {
-                try {
-                  await deleteAttachment(a.id);
-                  setAttachments((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? []).filter((x) => x.id !== a.id) }));
-                } catch (err) {
-                  console.error(err);
-                }
-              }} />
+              <Button
+                label="Delete"
+                variant="danger"
+                onPress={async () => {
+                  try {
+                    await deleteAttachment(a.id);
+                    setAttachments((prev) => ({
+                      ...prev,
+                      [field.key]: (prev[field.key] ?? []).filter((x) => x.id !== a.id),
+                    }));
+                  } catch (err) {
+                    console.error(err);
+                  }
+                }}
+              />
             </View>
           ))}
         </View>
@@ -234,7 +325,13 @@ const FieldComponent = React.memo(function FieldComponent(props: {
   }
 });
 
-export default function FormRenderer({ inspectionId, templateId }: { inspectionId: string; templateId: string | null }) {
+export default function FormRenderer({
+  inspectionId,
+  templateId,
+}: {
+  inspectionId: string;
+  templateId: string | null;
+}) {
   const theme = useTheme();
   const [schema, setSchema] = useState<TemplateSchema | null>(null);
   const [answersMap, setAnswersMap] = useState<Record<string, any>>({});
@@ -281,30 +378,63 @@ export default function FormRenderer({ inspectionId, templateId }: { inspectionI
   // Simple debounced save: wait 500ms after change before writing. Also save
   // on blur and when the component unmounts. For simplicity we implement a
   // per-field timer map in memory here.
-  const timers = useMemo(() => new Map<string, number>(), []);
+  //
+  // This is held in a ref, not useMemo: a Map that gets mutated (.set/.delete)
+  // after creation is exactly what refs are for — a mutable box React doesn't
+  // re-render on. useMemo's result is meant to be treated as an immutable
+  // snapshot, which is what the react-hooks/immutability lint rule enforces.
+  const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
+    const timers = timersRef.current;
     return () => {
       // flush any pending saves on unmount
       timers.forEach((t) => {
         clearTimeout(t);
       });
     };
-  }, [timers]);
+  }, []);
 
   // Wrap save functions with useCallback so they are stable and don't cause
   // memoized child components to re-render due to new function identity.
-  const scheduleSave = React.useCallback((fieldKey: string, value: any) => {
-    // update local UI state immediately
-    setAnswersMap((prev) => ({ ...prev, [fieldKey]: value }));
+  const scheduleSave = React.useCallback(
+    (fieldKey: string, value: any) => {
+      // update local UI state immediately
+      setAnswersMap((prev) => ({ ...prev, [fieldKey]: value }));
 
-    // clear existing timer
-    const existing = timers.get(fieldKey);
-    if (existing) clearTimeout(existing);
+      const timers = timersRef.current;
+      // clear existing timer
+      const existing = timers.get(fieldKey);
+      if (existing) clearTimeout(existing);
 
-    const id = setTimeout(async () => {
+      const id = setTimeout(async () => {
+        try {
+          // decide which column to save into
+          if (typeof value === "number") {
+            await saveAnswer(inspectionId, fieldKey, { number: value });
+          } else if (typeof value === "object") {
+            await saveAnswer(inspectionId, fieldKey, { json: value });
+          } else {
+            await saveAnswer(inspectionId, fieldKey, { text: value });
+          }
+        } catch (e) {
+          console.error("Failed to autosave", e);
+        }
+      }, 500);
+
+      timers.set(fieldKey, id);
+    },
+    [inspectionId],
+  );
+
+  const immediateSave = React.useCallback(
+    async (fieldKey: string, value: any) => {
+      // cancel any scheduled save and write immediately
+      const timers = timersRef.current;
+      const existing = timers.get(fieldKey);
+      if (existing) clearTimeout(existing);
+      timers.delete(fieldKey);
       try {
-        // decide which column to save into
         if (typeof value === "number") {
           await saveAnswer(inspectionId, fieldKey, { number: value });
         } else if (typeof value === "object") {
@@ -313,30 +443,11 @@ export default function FormRenderer({ inspectionId, templateId }: { inspectionI
           await saveAnswer(inspectionId, fieldKey, { text: value });
         }
       } catch (e) {
-        console.error("Failed to autosave", e);
+        console.error("Failed to save", e);
       }
-    }, 500);
-
-    timers.set(fieldKey, id as unknown as number);
-  }, [inspectionId, timers]);
-
-  const immediateSave = React.useCallback(async (fieldKey: string, value: any) => {
-    // cancel any scheduled save and write immediately
-    const existing = timers.get(fieldKey);
-    if (existing) clearTimeout(existing);
-    timers.delete(fieldKey);
-    try {
-      if (typeof value === "number") {
-        await saveAnswer(inspectionId, fieldKey, { number: value });
-      } else if (typeof value === "object") {
-        await saveAnswer(inspectionId, fieldKey, { json: value });
-      } else {
-        await saveAnswer(inspectionId, fieldKey, { text: value });
-      }
-    } catch (e) {
-      console.error("Failed to save", e);
-    }
-  }, [inspectionId, timers]);
+    },
+    [inspectionId],
+  );
 
   if (!schema) return null;
 
@@ -344,22 +455,25 @@ export default function FormRenderer({ inspectionId, templateId }: { inspectionI
     <View style={{ gap: theme.spacing.md }}>
       {schema.sections.map((section) => (
         <View key={section.id} style={{ gap: theme.spacing.sm }}>
-          <Text variant="heading">{section.title}</Text>
-          {section.fields.map((field: any) => {
-            const value = answersMap[field.key] ?? "";
-            return (
-              <FieldComponent
-                key={field.key}
-                field={field}
-                value={value}
-                inspectionId={inspectionId}
-                attachmentsForField={attachments[field.key] ?? []}
-                onScheduleSave={scheduleSave}
-                onImmediateSave={immediateSave}
-                setAttachments={setAttachments}
-              />
-            );
-          })}
+          <Text variant="subtitle">{section.title}</Text>
+          {section.fields
+            .filter((field: any) => isFieldVisible(field, answersMap))
+            .map((field: any) => {
+              const value = answersMap[field.key] ?? "";
+              return (
+                <FieldComponent
+                  key={field.key}
+                  field={field}
+                  value={value}
+                  inspectionId={inspectionId}
+                  attachmentsForField={attachments[field.key] ?? []}
+                  onScheduleSave={scheduleSave}
+                  onImmediateSave={immediateSave}
+                  setAttachments={setAttachments}
+                  onOpenSignature={(fieldKey) => setSignatureModal({ fieldKey })}
+                />
+              );
+            })}
         </View>
       ))}
 
@@ -374,17 +488,15 @@ export default function FormRenderer({ inspectionId, templateId }: { inspectionI
               let localUri = "file:///signature-placeholder.png";
               let byteSize: number | null = null;
               try {
-                const FileSystem = await import("expo-file-system");
-                const docDir = FileSystem.documentDirectory ?? "";
-                const folder = `${docDir}attachments/${inspectionId}/`;
-                await FileSystem.makeDirectoryAsync(folder, { intermediates: true }).catch(() => {});
+                const { Directory, File, Paths, EncodingType } = await import("expo-file-system");
+                const folder = new Directory(Paths.document, "attachments", inspectionId);
+                folder.create({ intermediates: true, idempotent: true });
                 const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-                const dest = `${folder}signature-${signatureModal.fieldKey}-${id}.png`;
-                await FileSystem.writeAsStringAsync(dest, base64, { encoding: FileSystem.EncodingType.Base64 });
-                const info = await FileSystem.getInfoAsync(dest, { size: true });
-                localUri = dest;
-                byteSize = info.size ?? null;
-              } catch (e) {
+                const dest = new File(folder, `signature-${signatureModal.fieldKey}-${id}.png`);
+                dest.write(base64, { encoding: EncodingType.Base64 });
+                localUri = dest.uri;
+                byteSize = dest.size ?? null;
+              } catch {
                 // fallback: keep placeholder
               }
 
@@ -397,7 +509,10 @@ export default function FormRenderer({ inspectionId, templateId }: { inspectionI
                 width: null,
                 height: null,
               });
-              setAttachments((prev) => ({ ...prev, [signatureModal.fieldKey]: (prev[signatureModal.fieldKey] ?? []).concat(att) }));
+              setAttachments((prev) => ({
+                ...prev,
+                [signatureModal.fieldKey]: (prev[signatureModal.fieldKey] ?? []).concat(att),
+              }));
             } catch (err) {
               console.error(err);
             } finally {
