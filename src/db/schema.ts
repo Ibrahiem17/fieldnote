@@ -13,6 +13,23 @@
 import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
+// Sync status — the state machine Phase 3's sync engine drives (plan
+// Section 4.4). `.$type<SyncStatus>()` below is a TypeScript-only cast, the
+// same trick INSPECTION_STATUSES already uses — the SQLite column itself
+// stays plain `text`, no migration needed to add this.
+// ---------------------------------------------------------------------------
+
+export const SYNC_STATUSES = [
+  "local",
+  "pending",
+  "syncing",
+  "synced",
+  "failed",
+  "conflict",
+] as const;
+export type SyncStatus = (typeof SYNC_STATUSES)[number];
+
+// ---------------------------------------------------------------------------
 // Shared columns
 // ---------------------------------------------------------------------------
 
@@ -31,7 +48,7 @@ function commonColumns() {
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
     deletedAt: integer("deleted_at"),
-    syncStatus: text("sync_status").notNull().default("local"),
+    syncStatus: text("sync_status").$type<SyncStatus>().notNull().default("local"),
   };
 }
 

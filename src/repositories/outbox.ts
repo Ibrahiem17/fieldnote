@@ -13,7 +13,7 @@
 // directly: it must run as part of the caller's transaction, not start one
 // of its own.
 
-import { eq } from "drizzle-orm";
+import { asc, eq, lte } from "drizzle-orm";
 
 import { isDbAvailable, requireDb, type DrizzleDb } from "@/db/client";
 import { outbox, type OutboxOperation, type OutboxEntry } from "@/db/schema";
@@ -69,4 +69,49 @@ export async function listOutboxForEntity(entityId: string): Promise<OutboxEntry
   if (!isDbAvailable()) return [];
   const db = requireDb();
   return db.select().from(outbox).where(eq(outbox.entityId, entityId));
+}
+
+/**
+ * What the drain loop (src/lib/syncEngine.ts) actually reads: every row due
+ * to be tried right now (`nextAttemptAt` has passed — always true today,
+ * since nothing schedules a later retry until Day 3), oldest first. Oldest
+ * first is not a style choice: a project's own "insert" row must reach the
+ * server before an inspection created under it, or the inspection's insert
+ * fails a foreign-key check server-side (plan Section 2.4/4.3 — "parents
+ * before children").
+ */
+export async function listPendingOutboxEntries(limit = 50): Promise<OutboxEntry[]> {
+  if (!isDbAvailable()) return [];
+  const db = requireDb();
+  return db
+    .select()
+    .from(outbox)
+    .where(lte(outbox.nextAttemptAt, now()))
+    .orderBy(asc(outbox.createdAt))
+    .limit(limit);
+}
+
+/** Removes an outbox row once its change has been confirmed applied server-side. */
+export async function deleteOutboxEntry(id: string): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  await db.delete(outbox).where(eq(outbox.id, id));
+}
+
+/**
+ * Day 2 scope only: record that a push attempt failed, without scheduling a
+ * retry — Day 3 adds the actual backoff-with-jitter delay this same column
+ * (`nextAttemptAt`) will drive. For now the row simply stays due immediately
+ * and the drain loop will try it again next time it runs.
+ */
+export async function recordOutboxFailure(id: string, error: string): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  const rows = await db.select().from(outbox).where(eq(outbox.id, id));
+  const current = rows[0];
+  if (!current) return;
+  await db
+    .update(outbox)
+    .set({ attempts: current.attempts + 1, lastError: error })
+    .where(eq(outbox.id, id));
 }

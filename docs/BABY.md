@@ -961,3 +961,70 @@ const { session, signOut } = useAuth();
 ```
 
 `session` here is exactly the same object `AuthProvider` stores — a Supabase `Session`, which carries a `user` object with the account's own `email` on it. `session?.user.email` — the `?.` (optional chaining, already explained elsewhere in this file) guards against `session` briefly being `null` during a render that happens to slip in between sign-out and the screen actually being unmounted, so this line reads "the signed-in user's email, or nothing at all, never a crash."
+
+---
+
+## Phase 3, Day 2 — pushing the outbox
+
+### `src/lib/syncApi.ts` — the one function that talks to the push endpoint
+
+```ts
+export type PushResult =
+  { ok: true; duplicate: boolean } | { ok: false; retryable: boolean; error: string };
+```
+
+This is a **discriminated union**, the same pattern Phase 2's `Field` type used — `ok` is the tag: when it's `true`, TypeScript knows a `duplicate` property exists; when it's `false`, it knows `retryable` and `error` exist instead. Code that receives a `PushResult` and checks `if (result.ok)` gets the right shape narrowed automatically, with no separate type check needed.
+
+```ts
+const { data, error } = await supabase.rpc("sync_push", {
+  p_idempotency_key: entry.id,
+  ...
+});
+```
+
+`supabase.rpc(name, args)` calls a Postgres function (an **RPC** — "remote procedure call": asking a distant computer to run a named function and give you back its answer, as opposed to asking it to fetch or store a row directly) that was created server-side by a migration, not by anything in this app's own TypeScript. The object of `p_`-prefixed keys matches that function's own parameter names exactly (`supabase/migrations/20260913000003_sync_push.sql`) — get a name wrong here and the call fails with "function does not exist," a mismatch between two files in two different languages that nothing in either language alone can catch for you.
+
+```ts
+function isRetryable(error: { code?: string; message: string }): boolean {
+  const permanentCodes = new Set(["42501", "22023", "28000"]);
+  if (error.code && permanentCodes.has(error.code)) return false;
+  return true;
+}
+```
+
+A `Set` here works exactly like the array-based lookups seen elsewhere in this project, but built specifically for "is this one value a member of this collection?" — checking `.has(x)` on a `Set` doesn't have to scan every element the way `array.includes(x)` conceptually does, though for three short strings the difference is invisible; the real reason to reach for a `Set` here is that "a collection of codes I check membership against" is exactly what a `Set` is _for_, semantically, not just how it happens to perform. Every error code not in that short list defaults to `true` (retryable) — deliberately: guessing "retryable" for an error this code doesn't specifically recognize costs one wasted attempt later, while guessing "permanent" for something that was actually temporary would silently abandon a real, still-pending change.
+
+### `src/lib/syncEngine.ts` — the drain loop
+
+```ts
+const markSyncedByEntityType: Partial<
+  Record<OutboxEntry["entityType"], (id: string) => Promise<void>>
+> = {
+  project: markProjectSynced,
+  inspection: markInspectionSynced,
+  answer: markAnswerSynced,
+};
+```
+
+`OutboxEntry["entityType"]` is an **indexed access type** (already used elsewhere in this project, e.g. `Variant` lookups) — "whatever type the `entityType` property actually has on `OutboxEntry`," read directly from the real type instead of retyped by hand, so if that union ever gains or loses a member, this line's own key type updates automatically instead of silently going stale. `Record<K, V>` says "an object whose keys are exactly the members of `K`" (also already used, for `Badge.tsx`'s status colors) — but wrapped in `Partial<...>` here specifically, because unlike that earlier case, this object is allowed to be missing an entry (`template` has no corresponding function, since templates are never created by this app in the first place) without that being a type error.
+
+```ts
+for (const entry of pending) {
+  const outcome = await pushOne(entry);
+  ...
+}
+```
+
+A plain `for...of` loop with an `await` inside it, not a `.map()` with `Promise.all(...)` — deliberately sequential, one push finishing completely before the next one starts. `Promise.all` (used elsewhere in this project for genuinely independent requests, like `inspections.tsx` fetching inspections and projects at once) is for work that doesn't care what order it finishes in; pushing outbox rows very much does — a project must actually finish arriving before the inspection queued right after it is sent, which sequential `await`-in-a-loop guarantees and running everything at once would not.
+
+### `src/repositories/projects.ts#markProjectSynced` (and its inspection/answer twins)
+
+```ts
+export async function markProjectSynced(id: string): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  await db.update(projects).set({ syncStatus: "synced" }).where(eq(projects.id, id));
+}
+```
+
+Every other write in this file runs inside `db.transaction(...)` and calls `appendOutboxEntry(...)` — because every other write represents something a person just did, which still needs to reach the server eventually. This function runs the moment the server confirms it already _has_ that change; writing another outbox entry here would queue up a pointless echo of a trip that already succeeded, which is exactly why this one function in the whole repository skips both the transaction and the outbox call. It isn't a shortcut — it's the one case where those two things genuinely don't apply.

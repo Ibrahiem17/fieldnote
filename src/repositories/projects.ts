@@ -98,6 +98,20 @@ export async function updateProject(id: string, patch: Partial<NewProjectInput>)
   return updated;
 }
 
+/**
+ * Sync-engine only (src/lib/syncEngine.ts) — stamps `syncStatus: "synced"`
+ * directly, with no transaction and no outbox write. Every other function
+ * in this file appends an outbox row because it represents something the
+ * user did that still needs to reach the server; this function is called
+ * *because* that trip already succeeded, so writing another outbox row here
+ * would just queue up a pointless echo of a change that already landed.
+ */
+export async function markProjectSynced(id: string): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  await db.update(projects).set({ syncStatus: "synced" }).where(eq(projects.id, id));
+}
+
 export async function softDeleteProject(id: string): Promise<void> {
   if (!isDbAvailable()) {
     throw new Error("softDeleteProject is not available in preview mode");

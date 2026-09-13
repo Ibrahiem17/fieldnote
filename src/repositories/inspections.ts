@@ -128,6 +128,13 @@ export async function updateInspection(
   return updated;
 }
 
+/** Sync-engine only — see the identical note on `markProjectSynced` in projects.ts. */
+export async function markInspectionSynced(id: string): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  await db.update(inspections).set({ syncStatus: "synced" }).where(eq(inspections.id, id));
+}
+
 export async function softDeleteInspection(id: string): Promise<void> {
   if (!isDbAvailable()) {
     mock.softDeleteInspection(id);

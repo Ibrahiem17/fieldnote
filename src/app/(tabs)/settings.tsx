@@ -15,6 +15,7 @@ import { listProjects } from "@/repositories/projects";
 import { listInspections } from "@/repositories/inspections";
 import { countOutboxEntries } from "@/repositories/outbox";
 import { useAuth } from "@/auth/AuthProvider";
+import { drainOutbox, type DrainResult } from "@/lib/syncEngine";
 
 export default function SettingsScreen() {
   const theme = useTheme();
@@ -22,6 +23,8 @@ export default function SettingsScreen() {
   const [counts, setCounts] = useState({ projects: 0, inspections: 0, outbox: 0 });
   const [reseeding, setReseeding] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<DrainResult | null>(null);
 
   const refreshCounts = useCallback(async () => {
     const [projects, inspections, outboxTotal] = await Promise.all([
@@ -106,6 +109,49 @@ export default function SettingsScreen() {
             <Text>Inspections: {counts.inspections}</Text>
             <Text>Outbox rows: {counts.outbox}</Text>
           </View>
+        </Card>
+
+        <Card>
+          <Text variant="label" muted>
+            Sync
+          </Text>
+          <Text
+            variant="caption"
+            muted
+            style={{ marginTop: theme.spacing.xs, marginBottom: theme.spacing.sm }}
+          >
+            Manual for now — Day 2 scope. No automatic retry yet: a row that fails here stays in the
+            outbox and is tried again the next time you tap this.
+          </Text>
+          <Button
+            label="Sync Now"
+            loading={syncing}
+            onPress={async () => {
+              setSyncing(true);
+              try {
+                const result = await drainOutbox();
+                setLastSync(result);
+                await refreshCounts();
+              } catch (e) {
+                console.error(e);
+                Alert.alert("Sync failed", String(e));
+              } finally {
+                setSyncing(false);
+              }
+            }}
+          />
+          {lastSync ? (
+            <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.xs }}>
+              <Text variant="caption">
+                Last run: {lastSync.synced} synced, {lastSync.failed} failed.
+              </Text>
+              {lastSync.errors.map((e, i) => (
+                <Text key={i} variant="caption" style={{ color: theme.colors.danger }}>
+                  {e.entityType} {e.entityId.slice(0, 8)}: {e.error}
+                </Text>
+              ))}
+            </View>
+          ) : null}
         </Card>
 
         <Card>

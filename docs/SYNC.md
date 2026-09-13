@@ -6,15 +6,15 @@ below claims more than what's actually been written and verified.
 
 ## Status
 
-| Day | Topic                                            | Status                  |
-| --- | ------------------------------------------------ | ----------------------- |
-| 1   | Backend, auth, RLS                               | **Done, live-verified** |
-| 2   | Push and idempotency                             | Not yet built           |
-| 3   | Retry, backoff, connectivity triggers, status UI | Not yet built           |
-| 4   | Pull, cursors, tombstones                        | Not yet built           |
-| 5   | Conflict resolution                              | Not yet built           |
-| 6   | File upload, background execution                | Not yet built           |
-| 7   | Test cases, final review                         | Not yet built           |
+| Day | Topic                                            | Status                                                           |
+| --- | ------------------------------------------------ | ---------------------------------------------------------------- |
+| 1   | Backend, auth, RLS                               | **Done, live-verified**                                          |
+| 2   | Push and idempotency                             | **Done — server proven live; client drain unverified on device** |
+| 3   | Retry, backoff, connectivity triggers, status UI | Not yet built                                                    |
+| 4   | Pull, cursors, tombstones                        | Not yet built                                                    |
+| 5   | Conflict resolution                              | Not yet built                                                    |
+| 6   | File upload, background execution                | Not yet built                                                    |
+| 7   | Test cases, final review                         | Not yet built                                                    |
 
 ## 1. Authentication (Day 1)
 
@@ -54,12 +54,69 @@ detail):
 **Not yet verified:** token refresh actually happening mid-sync (TC-04) —
 there's no sync yet for a token to expire during. Revisit once Day 2 exists.
 
-## 2. Push protocol
+## 2. Push protocol (Day 2)
 
-**Not yet built.** Will cover: request shape, the `Idempotency-Key` header,
-`sync_idempotency_keys` (already created in the Day 1 migration, unused
-until Day 2), ordering (parents before children), and the response-status
-table from the plan's Section 4.1.
+**The request:** not HTTP-headers-and-JSON-body over a hand-rolled server (the
+plan's literal Section 4.1 shape) — this project's backend IS Supabase, so
+push is one Postgres function, called as an RPC:
+
+```ts
+supabase.rpc("sync_push", {
+  p_idempotency_key: entry.id, // the outbox row's own UUID — see below
+  p_entity_type: entry.entityType, // "project" | "inspection" | "answer"
+  p_entity_id: entry.entityId,
+  p_operation: entry.operation, // "insert" | "update" | "delete"
+  p_payload: JSON.parse(entry.payloadJson),
+});
+```
+
+`src/lib/syncApi.ts#pushOutboxEntry` is the only place in the app that calls
+this. Supabase attaches the caller's own auth token automatically — there is
+no separate "attach the token" step to write.
+
+**The idempotency key is the outbox row's own `id`.** It's already a
+device-generated UUID (Phase 1, D-001), already uniquely names this one
+pending change, and never needs to be generated a second time — see
+`docs/DESIGN.md` D-019 for the full reasoning.
+
+**Server-side (`supabase/migrations/20260913000003_sync_push.sql`):**
+`sync_push` checks `sync_idempotency_keys` for that key first. Found → return
+the recorded response unchanged, `duplicate: true`, and touch nothing else.
+Not found → apply the insert/update/delete (deriving `owner_id` from
+`auth.uid()`, never from the payload — a client can't claim to write someone
+else's row) and record the response, all inside the one transaction a single
+function call already gets.
+
+**Response cases, as actually implemented (not the plan's literal HTTP
+status-code table, since there's no HTTP layer of our own to return one):**
+
+| Result                                        | What the client sees                                                 | What it means                                                                                                      |
+| --------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `{ ok: true, duplicate: false }`              | Applied for the first time                                           | Delete the outbox row, mark the entity `synced`                                                                    |
+| `{ ok: true, duplicate: true }`               | Already applied earlier                                              | Same as above — a duplicate is a success, not a special case                                                       |
+| `error.code = '42501'`/`'22023'`/`'28000'`    | Permanent — RLS/grant rejected it, a bad parameter, or not signed in | Classified `retryable: false` (`syncApi.ts#isRetryable`); Day 3 will dead-letter these instead of retrying forever |
+| `error.code = '23503'` (foreign key)          | Usually a child pushed before its parent finished                    | Classified `retryable: true` — resolves itself once the parent syncs                                               |
+| anything else (network failure, timeout, 5xx) | Temporary                                                            | `retryable: true`                                                                                                  |
+
+**Ordering: parents before children.** `src/repositories/outbox.ts#listPendingOutboxEntries`
+returns rows oldest-first, and `src/lib/syncEngine.ts#drainOutbox` pushes them
+one at a time, never in parallel — a project's own insert is always created
+(and therefore always queued) before any inspection created under it, so
+oldest-first is sufficient on its own to guarantee the parent lands first.
+Live-verified: pushing an inspection whose project had already been pushed
+succeeded; the identical push against a project id that was never pushed
+failed with Postgres `23503`, exactly as the ordering rule predicts should
+happen if it were ever violated.
+
+**What's live-verified versus what isn't (see `docs/DESIGN.md` D-019 for the
+full detail):** the RPC itself — idempotency, partial updates, FK ordering —
+was proven against the real backend with a throwaway script. The client-side
+drain loop and the Settings screen's "Sync Now" button call this exact,
+proven RPC and are typecheck/lint clean, but have not been exercised end to
+end, because this web preview's real SQLite (and therefore its real outbox
+table) never opens at all (D-010) — there is nothing to drain here. That
+round trip needs a physical device, same as every other on-device gap this
+project has been honest about from Phase 1 onward.
 
 ## 3. Pull protocol
 

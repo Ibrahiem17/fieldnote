@@ -64,7 +64,10 @@ export async function deleteAttachment(id: string): Promise<void> {
   const db = requireDb();
   const deletedAt = now();
   await db.transaction(async (tx) => {
-    await tx.update(attachments).set({ deletedAt, updatedAt: deletedAt }).where(eq(attachments.id, id));
+    await tx
+      .update(attachments)
+      .set({ deletedAt, updatedAt: deletedAt })
+      .where(eq(attachments.id, id));
     await appendOutboxEntry(tx, {
       entityType: "attachment",
       entityId: id,

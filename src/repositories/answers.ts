@@ -18,7 +18,10 @@ import * as mock from "@/db/mockStore";
 export async function getAnswers(inspectionId: string): Promise<Answer[]> {
   if (!isDbAvailable()) return mock.getAnswers(inspectionId);
   const db = requireDb();
-  return db.select().from(answers).where(and(eq(answers.inspectionId, inspectionId), isNull(answers.deletedAt)));
+  return db
+    .select()
+    .from(answers)
+    .where(and(eq(answers.inspectionId, inspectionId), isNull(answers.deletedAt)));
 }
 
 export async function saveAnswer(
@@ -36,8 +39,6 @@ export async function saveAnswer(
       .select()
       .from(answers)
       .where(and(eq(answers.inspectionId, inspectionId), eq(answers.fieldKey, fieldKey)));
-
-    const payload: any = { inspectionId, fieldKey, updatedAt, ...value };
 
     if (existing.length === 0) {
       const row: NewAnswer = {
@@ -67,15 +68,13 @@ export async function saveAnswer(
 
     // Update existing row
     const existingRow = existing[0] as Answer;
-    await tx
-      .update(answers)
-      .set({
-        valueText: value.text ?? null,
-        valueNumber: value.number ?? null,
-        valueJson: value.json ? JSON.stringify(value.json) : null,
-        updatedAt,
-      })
-      .where(eq(answers.id, existingRow.id));
+    const patch = {
+      valueText: value.text ?? null,
+      valueNumber: value.number ?? null,
+      valueJson: value.json ? JSON.stringify(value.json) : null,
+      updatedAt,
+    };
+    await tx.update(answers).set(patch).where(eq(answers.id, existingRow.id));
 
     // Instead of appending a new outbox row per autosave, remove any existing
     // pending "update" outbox entries for this answer and append a fresh one.
@@ -83,14 +82,27 @@ export async function saveAnswer(
     // (Phase 3 could also choose to dedupe on drain; either is acceptable.)
     await tx.delete(outbox).where(eq(outbox.entityId, existingRow.id));
 
+    // The outbox payload uses the exact same column names as `patch` above
+    // (valueText/valueNumber/valueJson) — not the `saveAnswer(...)` caller's
+    // own `{ text, number, json }` argument names. Phase 3's push logic
+    // (src/lib/syncEngine.ts) reads this JSON straight into a SQL update by
+    // column name; a mismatch here would silently write nothing server-side
+    // (found and fixed during Phase 3 Day 2 — docs/DESIGN.md D-019).
     await appendOutboxEntry(tx, {
       entityType: "answer",
       entityId: existingRow.id,
       operation: "update",
-      payload,
+      payload: { inspectionId, fieldKey, ...patch },
     });
 
     const updated = await tx.select().from(answers).where(eq(answers.id, existingRow.id));
     return updated[0] as Answer;
   });
+}
+
+/** Sync-engine only — see the identical note on `markProjectSynced` in projects.ts. */
+export async function markAnswerSynced(id: string): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  await db.update(answers).set({ syncStatus: "synced" }).where(eq(answers.id, id));
 }

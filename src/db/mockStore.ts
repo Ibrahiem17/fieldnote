@@ -25,6 +25,7 @@ import type {
   Inspection,
   NewInspection,
   InspectionStatus,
+  SyncStatus,
 } from "./schema";
 import { TEMPLATE_DEFS } from "./templateDefs";
 
@@ -239,7 +240,7 @@ type MockAnswer = {
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
-  syncStatus: string;
+  syncStatus: SyncStatus;
 };
 
 let answersStore: MockAnswer[] = [];
