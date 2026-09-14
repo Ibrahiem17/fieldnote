@@ -22,6 +22,9 @@ import {
   type OutboxSummary,
 } from "@/lib/syncEngine";
 import { runSync, type SyncResult } from "@/lib/sync";
+import { listConflicts } from "@/repositories/conflicts";
+import { resolveConflictChoice } from "@/lib/conflictResolutionActions";
+import type { Conflict } from "@/db/schema";
 
 export default function SettingsScreen() {
   const theme = useTheme();
@@ -31,6 +34,8 @@ export default function SettingsScreen() {
     pending: 0,
     deadLettered: 0,
   });
+  const [conflicts, setConflicts] = useState<Conflict[]>([]);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [reseeding, setReseeding] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -39,15 +44,30 @@ export default function SettingsScreen() {
   const [lastRetry, setLastRetry] = useState<DrainResult | null>(null);
 
   const refreshCounts = useCallback(async () => {
-    const [projects, inspections, outboxTotal, summary] = await Promise.all([
+    const [projects, inspections, outboxTotal, summary, conflictRows] = await Promise.all([
       listProjects(),
       listInspections(),
       countOutboxEntries(),
       getOutboxSummary(),
+      listConflicts(),
     ]);
     setCounts({ projects: projects.length, inspections: inspections.length, outbox: outboxTotal });
     setOutboxSummary(summary);
+    setConflicts(conflictRows);
   }, []);
+
+  const handleResolveConflict = async (conflict: Conflict, choice: "local" | "server") => {
+    setResolvingId(conflict.id);
+    try {
+      await resolveConflictChoice(conflict, choice);
+      await refreshCounts();
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Couldn't resolve", String(e));
+    } finally {
+      setResolvingId(null);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -199,8 +219,11 @@ export default function SettingsScreen() {
               <Text variant="caption">
                 Pushed: {lastSync.push.synced} synced, {lastSync.push.failed} failed. Pulled:{" "}
                 {lastSync.pull.merged} merged
-                {lastSync.pull.skippedForPendingLocalChange > 0
-                  ? `, ${lastSync.pull.skippedForPendingLocalChange} left alone (you have unsynced edits there)`
+                {lastSync.pull.autoResolved > 0
+                  ? `, ${lastSync.pull.autoResolved} auto-resolved`
+                  : ""}
+                {lastSync.pull.flaggedForManualResolution > 0
+                  ? `, ${lastSync.pull.flaggedForManualResolution} need your input below`
                   : ""}
                 .
               </Text>
@@ -225,6 +248,62 @@ export default function SettingsScreen() {
             </View>
           ) : null}
         </Card>
+
+        {conflicts.length > 0 ? (
+          <Card>
+            <Text variant="label" muted>
+              Needs your input ({conflicts.length})
+            </Text>
+            <Text
+              variant="caption"
+              muted
+              style={{ marginTop: theme.spacing.xs, marginBottom: theme.spacing.sm }}
+            >
+              You and someone else changed the same thing at almost the same time. Pick which one
+              should stick — whichever you choose syncs onward like a normal edit.
+            </Text>
+            <View style={{ gap: theme.spacing.md }}>
+              {conflicts.map((conflict) => {
+                const localValue = JSON.parse(conflict.localValueJson);
+                const serverValue = JSON.parse(conflict.serverValueJson);
+                const busy = resolvingId === conflict.id;
+                return (
+                  <View
+                    key={conflict.id}
+                    style={{
+                      borderTopWidth: 1,
+                      borderTopColor: theme.colors.border,
+                      paddingTop: theme.spacing.sm,
+                      gap: theme.spacing.xs,
+                    }}
+                  >
+                    <Text variant="caption" muted>
+                      {conflict.entityType} · {conflict.fieldKey}
+                    </Text>
+                    <View style={{ flexDirection: "row", gap: theme.spacing.sm }}>
+                      <View style={{ flex: 1 }}>
+                        <Button
+                          label={`Yours: ${String(localValue)}`}
+                          variant="secondary"
+                          loading={busy}
+                          onPress={() => handleResolveConflict(conflict, "local")}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Button
+                          label={`Theirs: ${String(serverValue)}`}
+                          variant="secondary"
+                          loading={busy}
+                          onPress={() => handleResolveConflict(conflict, "server")}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </Card>
+        ) : null}
 
         <Card>
           <Text variant="label" muted>

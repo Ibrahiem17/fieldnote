@@ -24,6 +24,14 @@ export async function getAnswers(inspectionId: string): Promise<Answer[]> {
     .where(and(eq(answers.inspectionId, inspectionId), isNull(answers.deletedAt)));
 }
 
+/** Day 5: conflict resolution (src/lib/syncPull.ts) needs one answer row by its own id, not a whole inspection's worth. */
+export async function getAnswerById(id: string): Promise<Answer | null> {
+  if (!isDbAvailable()) return null;
+  const db = requireDb();
+  const rows = await db.select().from(answers).where(eq(answers.id, id));
+  return rows[0] ?? null;
+}
+
 export async function saveAnswer(
   inspectionId: string,
   fieldKey: string,
@@ -113,4 +121,18 @@ export async function applyPulledAnswer(row: Omit<NewAnswer, "syncStatus">): Pro
   const db = requireDb();
   const values: NewAnswer = { ...row, syncStatus: "synced" };
   await db.insert(answers).values(values).onConflictDoUpdate({ target: answers.id, set: values });
+}
+
+/** Day 5, sync-engine only — see the identical note on `applyServerFieldMerge` in projects.ts. */
+export async function applyServerFieldMerge(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  if (!isDbAvailable()) return;
+  if (Object.keys(patch).length === 0) return;
+  const db = requireDb();
+  await db
+    .update(answers)
+    .set(patch as Partial<NewAnswer>)
+    .where(eq(answers.id, id));
 }

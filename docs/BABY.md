@@ -1161,3 +1161,70 @@ export async function runSync(): Promise<SyncResult> {
 ```
 
 Nothing complicated syntactically — two `await`s in a row, one after the other finishes — but the _reason_ it's its own tiny file matters: both the manual "Sync Now" button and the automatic connectivity/foreground triggers need "push, then pull," in exactly that order, every time. Without this file, that ordering would have to be remembered and re-typed correctly at every place that ever wants to trigger a sync — and the moment one of those places got the order backwards (or forgot the pull entirely), it would be a bug that's easy to introduce and hard to notice, since both push and pull would still work fine individually. One function, called from everywhere, means the rule can only be right or wrong in one place.
+
+---
+
+## Phase 3, Day 5 — resolving conflicts
+
+### `src/lib/conflict.ts#resolveConflict` — a pure decision function, and the two bugs testing it found
+
+```ts
+export type FieldResolution =
+  | { field: string; action: "take-server"; value: unknown }
+  | { field: string; action: "keep-local" }
+  | { field: string; action: "manual"; localValue: unknown; serverValue: unknown };
+```
+
+This is the same **discriminated union** pattern seen throughout this project (Phase 2's `Field` type, `PushResult` in `syncApi.ts`) — `action` is the tag. Reading `FieldResolution[]` as a sentence: "a list of instructions, one per field, each saying exactly one of: take the server's value, keep what's already local, or hand this one to a person."
+
+```ts
+if (!localEmpty && serverEmpty) {
+  resolutions.push({ field, action: "keep-local" });
+  continue;
+}
+if (localEmpty && serverEmpty) {
+  resolutions.push({ field, action: "keep-local" });
+  continue;
+}
+```
+
+This looks almost redundant with the branch just above it (`localEmpty && !serverEmpty`) — and that's exactly the point. Before this fix, the second condition was written as one combined check, `!localEmpty || serverEmpty` — using `||` (**or**) instead of `&&` (**and**). With `||`, the moment `!localEmpty` was `true` (meaning: "local isn't empty" — true for almost every real edit), the _whole_ condition became `true` regardless of what `serverEmpty` was — which meant this branch fired for **every** case where local had a real value, including the one case it was never supposed to catch: two genuinely different real values on both sides. That's a live demonstration of why `&&` and `||` aren't interchangeable "combine two conditions" operators — `&&` requires both sides true, `||` only needs one, and picking the wrong one here didn't crash anything or produce a type error; it just quietly made a whole rule (R7, "ask a person") unreachable. Writing out each real case as its own explicit, separate `if` — even though two of them do the same thing (`"keep-local"`) — makes each one individually obviously correct, instead of relying on one cleverly-combined boolean expression to secretly cover three different situations correctly.
+
+```ts
+const serverPredatesLocalEdit = args.serverUpdatedAtMs < args.localPendingChangedAt;
+```
+
+This line is the fix for the _second_ bug the same test run found — not a typo this time, a genuine gap in the reasoning. Without it: the moment this device makes a local edit, the very next pull (which asks the server "what's changed?") would see this device's OWN new edit as "different from the server," purely because the server hasn't heard about it yet — nothing to do with anyone else touching anything. `serverUpdatedAtMs < localPendingChangedAt` — comparing two plain numbers (milliseconds) — answers a very specific question: "does the row I just pulled predate my own edit?" If yes, any field difference is expected and meaningless as a conflict signal; the code short-circuits straight to `"keep-local"` for that field, skipping the closer, more expensive same-field-conflict logic entirely.
+
+### `src/repositories/conflicts.ts#recordConflict` — checking for a duplicate before inserting
+
+```ts
+const existing = await db
+  .select()
+  .from(conflicts)
+  .where(
+    and(
+      eq(conflicts.entityType, args.entityType),
+      eq(conflicts.entityId, args.entityId),
+      eq(conflicts.fieldKey, args.fieldKey),
+    ),
+  );
+if (existing.length > 0) return;
+```
+
+A **read-then-write** pattern: check whether a row matching all three of these columns already exists, and if it does, do nothing rather than inserting a second one. This matters because `pullChanges()` can run repeatedly (the manual button, the automatic triggers) before a person has gotten around to resolving a conflict already sitting there — without this check, each additional pull before the conflict is resolved would pile up a fresh duplicate row asking the exact same already-asked question.
+
+### `src/lib/conflictResolutionActions.ts#resolveConflictChoice` — turning a person's tap into a normal edit
+
+```ts
+if (choice === "local") {
+  await deleteConflict(conflict.id);
+  return;
+}
+const value = JSON.parse(conflict.serverValueJson);
+if (conflict.entityType === "project") {
+  await updateProject(conflict.entityId, { [conflict.fieldKey]: value } as Record<string, unknown>);
+}
+```
+
+`{ [conflict.fieldKey]: value }` is a **computed property name** — the square brackets around `conflict.fieldKey` mean "use the _value_ of this variable as the object's key," not the literal text `"conflict.fieldKey"`. Since `conflict.fieldKey` might be `"title"` this time and `"notes"` next time, this one line can build `{ title: value }` or `{ notes: value }` depending on which conflict is actually being resolved, without a separate `if` for every possible field name. Choosing "theirs" calls `updateProject`/`updateInspection`/`saveAnswer` — the exact same functions a real screen calls when a person types into a field — which is what makes the choice "sync onward like a normal edit" (plan Section 3.5.3): it appends a fresh outbox entry the same way any other edit would, with nothing about the sync engine needing to know this particular edit came from a conflict screen rather than a text box.

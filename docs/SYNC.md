@@ -6,15 +6,15 @@ below claims more than what's actually been written and verified.
 
 ## Status
 
-| Day | Topic                                            | Status                                                                           |
-| --- | ------------------------------------------------ | -------------------------------------------------------------------------------- |
-| 1   | Backend, auth, RLS                               | **Done, live-verified**                                                          |
-| 2   | Push and idempotency                             | **Done — server proven live; client drain unverified on device**                 |
-| 3   | Retry, backoff, connectivity triggers, status UI | **Done — formula and classification proven live; triggers unverified on device** |
-| 4   | Pull, cursors, tombstones                        | **Done — resurrection prevention proven live; local merge unverified on device** |
-| 5   | Conflict resolution                              | Not yet built                                                                    |
-| 6   | File upload, background execution                | Not yet built                                                                    |
-| 7   | Test cases, final review                         | Not yet built                                                                    |
+| Day | Topic                                            | Status                                                                                                |
+| --- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| 1   | Backend, auth, RLS                               | **Done, live-verified**                                                                               |
+| 2   | Push and idempotency                             | **Done — server proven live; client drain unverified on device**                                      |
+| 3   | Retry, backoff, connectivity triggers, status UI | **Done — formula and classification proven live; triggers unverified on device**                      |
+| 4   | Pull, cursors, tombstones                        | **Done — resurrection prevention proven live; local merge unverified on device**                      |
+| 5   | Conflict resolution                              | **Done — resolution logic proven against the plan's own examples; local writes unverified on device** |
+| 6   | File upload, background execution                | Not yet built                                                                                         |
+| 7   | Test cases, final review                         | Not yet built                                                                                         |
 
 ## 1. Authentication (Day 1)
 
@@ -194,12 +194,91 @@ server before it asks "what's new?" — otherwise a pull could bring down a
 now-stale server version of something this device was about to overwrite
 anyway, on every single sync, for no reason.
 
-## 4. Conflict policy
+## 4. Conflict policy (Day 5)
 
-**Not yet built.** Will state the rules from plan Section 5 (R1–R7) with
-worked examples once Day 5 actually implements detection and merging —
-writing the policy before the code that enforces it exists would be a set of
-promises, not a specification of what the app does.
+**Detection** happens in `src/lib/syncPull.ts`, not via a push-time `409`
+(the plan's literal Section 4.1 shape needs a `baseVersion` this project's
+`sync_push` doesn't track — see `docs/DESIGN.md` D-022 for why). A conflict
+exists, by definition, the moment a pulled row's entity also has a pending
+local outbox entry: both sides changed since this device last agreed with
+the server, the same condition Section 3.5.1 defines, discovered from pull
+instead of push.
+
+**The rules, as implemented (`src/lib/conflict.ts#resolveConflict`):**
+
+| #   | Situation                                           | Resolution                                                                                                                                                                                                                      | Where                                          |
+| --- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| R1  | Different fields changed                            | Merge both — server's value taken for every field this device never touched                                                                                                                                                     | Silent                                         |
+| R2  | Same field, one side empty                          | The real value wins, whichever side it's on                                                                                                                                                                                     | Silent                                         |
+| R3  | Same field, both real values, **not** close in time | Local's pending edit is kept — it's about to push and receive a server timestamp newer than the one just pulled, so keeping it _is_ letting the newer edit win, without ever comparing an unsynced device clock to the server's | Silent                                         |
+| R4  | Delete vs. edit                                     | An incoming tombstone for an entity with a pending local edit **always** wins — not clock-compared (D-022)                                                                                                                      | Silent, and discards the local pending edit(s) |
+| R5  | Both deleted                                        | Same code path as R4 — nothing left to disagree about                                                                                                                                                                           | Silent                                         |
+| R6  | Attachments                                         | Not synced at all yet (D-019) — genuinely not reachable until Day 6                                                                                                                                                             | N/A                                            |
+| R7  | Same field, both real values, **within 60 seconds** | Flagged in the `conflicts` table for a person                                                                                                                                                                                   | Manual — Settings screen                       |
+
+**Worked examples — run as real assertions against the actual function, not
+traced by hand (`docs/DESIGN.md` D-022 has the full list and the two real
+bugs this caught):**
+
+- **A edits title, B edits notes (Example 1).** Different fields — both
+  survive automatically. Confirmed: title kept local, notes taken from the
+  server, no conflict recorded anywhere.
+- **A sets Fair, B sets Poor, minutes apart (Example 2).** Same field, not
+  close in time — the local device's pending edit is kept (see R3's
+  reasoning above), confirmed directly.
+- **"Minor cracking" vs. "Structural damage, urgent," 30 seconds apart
+  (Example 3).** Same field, close in time, both meaningfully different —
+  flagged for manual resolution rather than silently guessed at. This is
+  the example the R2 bug (below) was actually breaking.
+- **A deletes X and syncs; B, offline, edited X earlier and pushes late
+  (Example 4 / the resurrection bug).** Already proven at the push/pull
+  level in Day 4 (D-021); `resolveConflict`'s own `delete-wins` branch was
+  separately confirmed to return that outcome whenever an incoming
+  tombstone meets a pending local edit.
+
+**Manual resolution (plan Section 3.5.3):** a flagged field becomes one row
+in a new local table, `conflicts` (`src/db/schema.ts`, migration `0003`) —
+entity type, entity id, field name, both values, as JSON. The Settings
+screen lists every open conflict with both values as two buttons; picking
+"theirs" calls the entity's own normal update function (`updateProject`/
+`updateInspection`/`saveAnswer`) with the server's value — the exact same
+code path a real screen edit takes, so the choice gets a fresh outbox entry
+and syncs onward like any other change, per the plan's own instruction.
+Picking "mine" needs no write at all: that value is already in local
+storage with its own pending outbox entry already queued.
+
+**Two real bugs, caught by testing, not by reasoning about the code:**
+
+1. A boolean-logic slip in the R2 branch silently swallowed R7 entirely —
+   every close-in-time, both-real-values case fell through to "keep local"
+   instead of asking a person, exactly the case (a possible safety-relevant
+   note) the rule exists to protect.
+2. Even after that fix, a field only one device had ever touched could
+   still get incorrectly flagged, purely because a stale server value
+   trivially differs from a brand-new local edit — nothing to do with a
+   real race. Fixed by checking whether the pulled row's own timestamp
+   predates the local edit at all; if so, nothing here is a real conflict,
+   full stop.
+
+**An honest, documented limitation, not hidden:** the fix above still
+leaves a narrow false-positive: if a _different_ device edits a _different_
+field on the same row within the 60-second window, this device's own
+untouched field can occasionally still get flagged, because "close in
+time" is judged at the row level, not per field. Precisely fixing this
+needs per-field version tracking Day 5 wasn't scoped to build — see
+`docs/DESIGN.md` D-022. The failure direction is the safe one: an
+occasional unneeded question, never a silently discarded edit.
+
+**What's live-verified versus what isn't:** every rule in the table above,
+and all four worked examples, were run as real assertions against the
+actual resolution function — two genuine bugs were caught this way before
+either shipped. What hasn't been exercised end to end, for the same D-010
+reason as every earlier day: `syncPull.ts` actually writing a merged field
+into local SQLite, recording a real `conflicts` row, and the Settings
+screen's resolve buttons actually pushing a person's choice — this web
+preview's real SQLite never opens, so none of it has touched a real local
+row. TC-25 and TC-29 — the two cases the plan says prove Phase 3
+worked — still need two real phones, same as always.
 
 ## 5. Failure handling (Day 3)
 
@@ -265,13 +344,21 @@ no real SQLite (D-010) and no real "airplane mode off" event to produce.
 local ──push──▶ syncing ──ok────────────▶ synced
                   │
                   ├──retryable─────────▶ pending ──(backoff elapses)──▶ syncing
-                  ├──permanent, or
-                  │  max attempts───────▶ failed  ──(manual "Retry Failed")──▶ syncing
-                  └──(Day 5) 409────────▶ conflict ──resolved──▶ pending
+                  └──permanent, or
+                     max attempts───────▶ failed  ──(manual "Retry Failed")──▶ syncing
+
+(pull, not push) a row with a pending local edit ──▶ resolveConflict()
+                  ├──R1/R2/R3, auto───────────────▶ pending  (unaffected fields merged, dirty fields untouched)
+                  ├──R4/R5, tombstone wins─────────▶ synced  (local pending edit discarded, server version applied)
+                  └──R7, ambiguous─────────────────▶ conflict ──(manual choice)──▶ pending
 ```
 
-Matches the plan's own Section 4.4 diagram, with one addition: `failed`
-(dead-lettered) only ever moves again through the deliberate, manual "Retry
-Failed" action (`src/lib/syncEngine.ts#retryDeadLetters`) — never on its
-own, since a dead letter existing at all means something needs a human's
+Two differences from the plan's own Section 4.4 diagram, both explained in
+`docs/DESIGN.md` D-022: `conflict` is reached from a **pull** finding a
+pending local edit, not from a push receiving a `409` (this project's
+`sync_push` has no `baseVersion` to reject against) — and most conflicts
+(R1–R5) never touch the `conflict` state at all, resolving silently during
+the same pull. `failed` (dead-lettered) only ever moves again through the
+deliberate, manual "Retry Failed" action (`src/lib/syncEngine.ts#retryDeadLetters`)
+— never on its own, since a dead letter existing at all means something needs a human's
 attention, not another silent automatic attempt.

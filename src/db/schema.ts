@@ -214,6 +214,27 @@ export const syncState = sqliteTable("sync_state", {
 });
 
 // ---------------------------------------------------------------------------
+// conflicts — Phase 3, Day 5. One row per FIELD a pull couldn't resolve on
+// its own (plan Section 5, rule R7: "same field, both non-empty, within
+// 60s → flag for manual resolution"). Everything the sync engine COULD
+// decide by itself (R1, R2, R3 — see src/lib/conflict.ts) never reaches
+// this table at all; only the genuinely ambiguous cases do.
+// ---------------------------------------------------------------------------
+
+export const conflicts = sqliteTable("conflicts", {
+  id: text("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  fieldKey: text("field_key").notNull(),
+  // Both sides stored as JSON text (mirroring outbox.payloadJson) since a
+  // field's value could be a string, a number, or null depending on which
+  // field/table this conflict came from.
+  localValueJson: text("local_value_json").notNull(),
+  serverValueJson: text("server_value_json").notNull(),
+  detectedAt: integer("detected_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred TypeScript types — one source of truth, no hand-written duplicates
 // ---------------------------------------------------------------------------
 
@@ -236,3 +257,6 @@ export type OutboxEntry = typeof outbox.$inferSelect;
 export type NewOutboxEntry = typeof outbox.$inferInsert;
 
 export type SyncStateRow = typeof syncState.$inferSelect;
+
+export type Conflict = typeof conflicts.$inferSelect;
+export type NewConflict = typeof conflicts.$inferInsert;

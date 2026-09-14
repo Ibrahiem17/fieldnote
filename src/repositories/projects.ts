@@ -134,6 +134,31 @@ export async function applyPulledProject(row: Omit<NewProject, "syncStatus">): P
   await db.insert(projects).values(values).onConflictDoUpdate({ target: projects.id, set: values });
 }
 
+/**
+ * Day 5, sync-engine only (`src/lib/syncPull.ts`, via `src/lib/conflict.ts`)
+ * — applies only the SPECIFIC fields a conflict resolution decided are safe
+ * to take from the server (plan Section 5's R1/R2/R3), leaving every other
+ * column — including this device's own still-pending edited fields —
+ * completely untouched. This is deliberately narrower than
+ * `applyPulledProject`'s full-row upsert: that function is for a row with
+ * NO local conflict at all; this one exists specifically because some
+ * fields on this row DO have a pending local edit that must survive.
+ * `syncStatus` is left alone too — the entity is still `"pending"` because
+ * its own outbox entry hasn't pushed yet.
+ */
+export async function applyServerFieldMerge(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  if (!isDbAvailable()) return;
+  if (Object.keys(patch).length === 0) return;
+  const db = requireDb();
+  await db
+    .update(projects)
+    .set(patch as Partial<NewProject>)
+    .where(eq(projects.id, id));
+}
+
 export async function softDeleteProject(id: string): Promise<void> {
   if (!isDbAvailable()) {
     throw new Error("softDeleteProject is not available in preview mode");

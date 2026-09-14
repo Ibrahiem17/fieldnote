@@ -1,11 +1,13 @@
 // src/lib/syncPull.ts
 //
-// Day 4: pulls every row that changed on the server since the last pull,
-// merges each into local SQLite, and only advances the cursor once the
-// whole batch has applied. No conflict resolution yet (Day 5) — a row with
-// its own still-pending outbox entry is left completely alone, exactly as
-// the plan requires: "never overwrite a local row with unsynced pending
-// changes; leave it for conflict handling."
+// Pulls every row that changed on the server since the last pull, merges
+// each into local SQLite, and only advances the cursor once the whole
+// batch has applied. A row with no pending local edit is a plain upsert
+// (Day 4). A row that DOES have a pending local edit is where Day 5's
+// conflict policy (src/lib/conflict.ts, plan Section 5) actually runs:
+// some fields resolve automatically, some get flagged for a person
+// (src/repositories/conflicts.ts), and an incoming delete always wins over
+// a stale local edit (the resurrection-prevention property, D-021).
 //
 // Unlike push (a single RPC, D-019), pull is plain reads through
 // PostgREST — `supabase.from(table).select(...)` — because a read needs no
@@ -14,17 +16,33 @@
 
 import { supabase } from "./supabase";
 import { getLastSyncedAt, setLastSyncedAt } from "@/repositories/syncState";
-import { listOutboxForEntity } from "@/repositories/outbox";
-import { applyPulledProject } from "@/repositories/projects";
-import { applyPulledInspection } from "@/repositories/inspections";
-import { applyPulledAnswer } from "@/repositories/answers";
-import type { InspectionStatus } from "@/db/schema";
+import { listOutboxForEntity, deleteOutboxEntry } from "@/repositories/outbox";
+import {
+  getProject,
+  applyPulledProject,
+  applyServerFieldMerge as mergeProjectFields,
+} from "@/repositories/projects";
+import {
+  getInspection,
+  applyPulledInspection,
+  applyServerFieldMerge as mergeInspectionFields,
+} from "@/repositories/inspections";
+import {
+  getAnswerById,
+  applyPulledAnswer,
+  applyServerFieldMerge as mergeAnswerFields,
+} from "@/repositories/answers";
+import { recordConflict, deleteConflictsForEntity } from "@/repositories/conflicts";
+import { resolveConflict } from "./conflict";
+import type { InspectionStatus, OutboxEntry } from "@/db/schema";
 
 export type PullResult = {
   pulled: number;
   merged: number;
-  /** Left untouched because this device has its own unsynced edit pending — Day 5's job. */
-  skippedForPendingLocalChange: number;
+  /** R1/R2/R3 — resolved automatically, no local row was left alone. */
+  autoResolved: number;
+  /** R7 — flagged in the `conflicts` table for a person to look at. */
+  flaggedForManualResolution: number;
 };
 
 // The one starting point before any real pull has ever run — "everything
@@ -34,11 +52,33 @@ export type PullResult = {
 // shape end to end (src/db/schema.ts's `syncState` comment explains why).
 const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
 
+// Columns that are never a meaningful "which side wins" question on their
+// own — identifiers, timestamps, and (for inspections) the fields nothing
+// in this app's UI actually lets two people edit concurrently in a way
+// worth flagging. `deletedAt` is handled separately (resolveConflict's
+// delete-wins/own-delete-proceeds branches) — never compared field-by-field.
+const COMMON_IGNORE_FIELDS = ["id", "createdAt", "updatedAt", "deletedAt"];
+
+type EntityHandlers<Row> = {
+  entityType: OutboxEntry["entityType"];
+  toLocalFields: (row: Row) => Record<string, unknown>;
+  getLocalRow: (id: string) => Promise<Record<string, unknown> | null>;
+  applyFullRow: (fields: Record<string, unknown>) => Promise<void>;
+  applyFieldMerge: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  ignoreFields: string[];
+};
+
 async function pullTable<Row extends { id: string; server_updated_at: string }>(
   table: "projects" | "inspections" | "answers",
   cursor: string,
-  applyRow: (row: Row) => Promise<void>,
-): Promise<{ maxServerUpdatedAt: string; pulled: number; merged: number; skipped: number }> {
+  handlers: EntityHandlers<Row>,
+): Promise<{
+  maxServerUpdatedAt: string;
+  pulled: number;
+  merged: number;
+  autoResolved: number;
+  flagged: number;
+}> {
   const { data, error } = await supabase
     .from(table)
     .select("*")
@@ -52,7 +92,8 @@ async function pullTable<Row extends { id: string; server_updated_at: string }>(
   const rows = (data ?? []) as Row[];
   let maxServerUpdatedAt = cursor;
   let merged = 0;
-  let skipped = 0;
+  let autoResolved = 0;
+  let flagged = 0;
 
   for (const row of rows) {
     // ISO-8601 timestamps in this fixed, UTC-offset shape sort correctly
@@ -64,22 +105,97 @@ async function pullTable<Row extends { id: string; server_updated_at: string }>(
       maxServerUpdatedAt = row.server_updated_at;
     }
 
-    const pendingLocalChanges = await listOutboxForEntity(row.id);
-    if (pendingLocalChanges.length > 0) {
-      // This row has an unsynced local edit sitting in the outbox — apply
-      // the incoming server version and that edit would simply vanish
-      // with no record it ever happened. Day 5 decides what actually
-      // happens when both sides changed; Day 4's job is only to not make
-      // that decision by accident.
-      skipped += 1;
+    const serverFields = handlers.toLocalFields(row);
+    const pendingEntries = await listOutboxForEntity(row.id);
+
+    if (pendingEntries.length === 0) {
+      // No local conflict of any kind — the plain Day 4 case.
+      await handlers.applyFullRow(serverFields);
+      merged += 1;
       continue;
     }
 
-    await applyRow(row);
-    merged += 1;
+    const localRow = await handlers.getLocalRow(row.id);
+    if (!localRow) {
+      // Outbox row exists but the local entity itself is gone — nothing
+      // sensible to reconcile against; treat it like the no-conflict case.
+      await handlers.applyFullRow(serverFields);
+      merged += 1;
+      continue;
+    }
+
+    const dirtyFields = new Set<string>();
+    let hasPendingDelete = false;
+    for (const entry of pendingEntries) {
+      if (entry.operation === "delete") hasPendingDelete = true;
+      try {
+        const payload = JSON.parse(entry.payloadJson) as Record<string, unknown>;
+        for (const key of Object.keys(payload)) {
+          if (!handlers.ignoreFields.includes(key)) dirtyFields.add(key);
+        }
+      } catch {
+        // A malformed payload can't tell us which fields it touched —
+        // src/lib/syncApi.ts already treats this as a permanent push
+        // failure elsewhere; here it just contributes nothing to dirtyFields.
+      }
+    }
+    const localPendingChangedAt = Math.max(...pendingEntries.map((e) => e.createdAt));
+
+    const resolution = resolveConflict({
+      localRow,
+      serverRow: serverFields,
+      dirtyFields,
+      hasPendingDelete,
+      localPendingChangedAt,
+      serverUpdatedAtMs: new Date(row.server_updated_at).getTime(),
+      ignoreFields: handlers.ignoreFields,
+    });
+
+    if (resolution.kind === "delete-wins") {
+      // R4/R5: the server's tombstone wins outright. This device's pending
+      // edit(s) for this entity are discarded — pushing them onward would
+      // just be editing something that's already gone — and any open
+      // manual-resolution conflicts on it stop mattering too.
+      for (const entry of pendingEntries) {
+        await deleteOutboxEntry(entry.id);
+      }
+      await deleteConflictsForEntity(row.id);
+      await handlers.applyFullRow(serverFields);
+      merged += 1;
+      continue;
+    }
+
+    if (resolution.kind === "own-delete-proceeds") {
+      // This device's own pending delete takes priority locally; let it
+      // push normally on the next drain. Nothing to merge from the server
+      // into a row that's about to be deleted anyway.
+      continue;
+    }
+
+    // resolution.kind === "fields": apply whatever's safe now, flag the rest.
+    const mergePatch: Record<string, unknown> = {};
+    for (const fieldResolution of resolution.resolutions) {
+      if (fieldResolution.action === "take-server") {
+        mergePatch[fieldResolution.field] = fieldResolution.value;
+      } else if (fieldResolution.action === "manual") {
+        await recordConflict({
+          entityType: handlers.entityType,
+          entityId: row.id,
+          fieldKey: fieldResolution.field,
+          localValueJson: JSON.stringify(fieldResolution.localValue),
+          serverValueJson: JSON.stringify(fieldResolution.serverValue),
+        });
+        flagged += 1;
+      }
+      // "keep-local" needs no write at all — local's pending value already
+      // stands, and its own outbox entry is already queued to push it.
+    }
+
+    await handlers.applyFieldMerge(row.id, mergePatch);
+    autoResolved += 1;
   }
 
-  return { maxServerUpdatedAt, pulled: rows.length, merged, skipped };
+  return { maxServerUpdatedAt, pulled: rows.length, merged, autoResolved, flagged };
 }
 
 type ProjectRow = {
@@ -127,6 +243,74 @@ type AnswerRow = {
   value_json: string | null;
 };
 
+const projectHandlers: EntityHandlers<ProjectRow> = {
+  entityType: "project",
+  ignoreFields: COMMON_IGNORE_FIELDS,
+  toLocalFields: (row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    name: row.name,
+    clientName: row.client_name,
+    address: row.address,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    notes: row.notes,
+  }),
+  getLocalRow: (id) => getProject(id) as Promise<Record<string, unknown> | null>,
+  applyFullRow: (fields) => applyPulledProject(fields as Parameters<typeof applyPulledProject>[0]),
+  applyFieldMerge: mergeProjectFields,
+};
+
+const inspectionHandlers: EntityHandlers<InspectionRow> = {
+  entityType: "inspection",
+  ignoreFields: [...COMMON_IGNORE_FIELDS, "projectId", "templateId"],
+  toLocalFields: (row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    projectId: row.project_id,
+    templateId: row.template_id,
+    title: row.title,
+    // Server-side `status` is plain `text` (no SQL enum/CHECK, matching
+    // this project's local schema convention) — narrowed to the real
+    // union here, the same trust boundary `InspectionDetailScreen`
+    // already crosses when it writes a status value in the first place.
+    status: row.status as InspectionStatus,
+    inspectorName: row.inspector_name,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    notes: row.notes,
+  }),
+  getLocalRow: (id) => getInspection(id) as Promise<Record<string, unknown> | null>,
+  applyFullRow: (fields) =>
+    applyPulledInspection(fields as Parameters<typeof applyPulledInspection>[0]),
+  applyFieldMerge: mergeInspectionFields,
+};
+
+const answerHandlers: EntityHandlers<AnswerRow> = {
+  entityType: "answer",
+  ignoreFields: [...COMMON_IGNORE_FIELDS, "inspectionId", "fieldKey"],
+  toLocalFields: (row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    inspectionId: row.inspection_id,
+    fieldKey: row.field_key,
+    valueText: row.value_text,
+    valueNumber: row.value_number,
+    valueJson: row.value_json,
+  }),
+  getLocalRow: (id) => getAnswerById(id) as Promise<Record<string, unknown> | null>,
+  applyFullRow: (fields) => applyPulledAnswer(fields as Parameters<typeof applyPulledAnswer>[0]),
+  applyFieldMerge: mergeAnswerFields,
+};
+
 /**
  * Pulls and merges changes from every synced table, oldest cursor to
  * newest, then advances the local cursor to the newest `server_updated_at`
@@ -138,68 +322,30 @@ type AnswerRow = {
 export async function pullChanges(): Promise<PullResult> {
   const cursor = (await getLastSyncedAt()) ?? EPOCH_ISO;
   let newestSeen = cursor;
-  const result: PullResult = { pulled: 0, merged: 0, skippedForPendingLocalChange: 0 };
+  const result: PullResult = {
+    pulled: 0,
+    merged: 0,
+    autoResolved: 0,
+    flaggedForManualResolution: 0,
+  };
 
   // Parents before children — same principle as push (D-019's ordering
   // rule) — even though local SQLite enforces no real foreign key (D-005),
   // applying in this order means "does this project exist yet" is already
   // true for every inspection merged right after it.
-  const projectsResult = await pullTable<ProjectRow>("projects", cursor, (row) =>
-    applyPulledProject({
-      id: row.id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      deletedAt: row.deleted_at,
-      name: row.name,
-      clientName: row.client_name,
-      address: row.address,
-      latitude: row.latitude,
-      longitude: row.longitude,
-      notes: row.notes,
-    }),
+  const projectsResult = await pullTable<ProjectRow>("projects", cursor, projectHandlers);
+  const inspectionsResult = await pullTable<InspectionRow>(
+    "inspections",
+    cursor,
+    inspectionHandlers,
   );
-
-  const inspectionsResult = await pullTable<InspectionRow>("inspections", cursor, (row) =>
-    applyPulledInspection({
-      id: row.id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      deletedAt: row.deleted_at,
-      projectId: row.project_id,
-      templateId: row.template_id,
-      title: row.title,
-      // Server-side `status` is plain `text` (no SQL enum/CHECK, matching
-      // this project's local schema convention) — narrowed to the real
-      // union here, the same trust boundary `InspectionDetailScreen`
-      // already crosses when it writes a status value in the first place.
-      status: row.status as InspectionStatus,
-      inspectorName: row.inspector_name,
-      startedAt: row.started_at,
-      completedAt: row.completed_at,
-      latitude: row.latitude,
-      longitude: row.longitude,
-      notes: row.notes,
-    }),
-  );
-
-  const answersResult = await pullTable<AnswerRow>("answers", cursor, (row) =>
-    applyPulledAnswer({
-      id: row.id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      deletedAt: row.deleted_at,
-      inspectionId: row.inspection_id,
-      fieldKey: row.field_key,
-      valueText: row.value_text,
-      valueNumber: row.value_number,
-      valueJson: row.value_json,
-    }),
-  );
+  const answersResult = await pullTable<AnswerRow>("answers", cursor, answerHandlers);
 
   for (const r of [projectsResult, inspectionsResult, answersResult]) {
     result.pulled += r.pulled;
     result.merged += r.merged;
-    result.skippedForPendingLocalChange += r.skipped;
+    result.autoResolved += r.autoResolved;
+    result.flaggedForManualResolution += r.flagged;
     if (r.maxServerUpdatedAt > newestSeen) newestSeen = r.maxServerUpdatedAt;
   }
 

@@ -147,6 +147,20 @@ export async function applyPulledInspection(row: Omit<NewInspection, "syncStatus
     .onConflictDoUpdate({ target: inspections.id, set: values });
 }
 
+/** Day 5, sync-engine only — see the identical note on `applyServerFieldMerge` in projects.ts. */
+export async function applyServerFieldMerge(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  if (!isDbAvailable()) return;
+  if (Object.keys(patch).length === 0) return;
+  const db = requireDb();
+  await db
+    .update(inspections)
+    .set(patch as Partial<NewInspection>)
+    .where(eq(inspections.id, id));
+}
+
 export async function softDeleteInspection(id: string): Promise<void> {
   if (!isDbAvailable()) {
     mock.softDeleteInspection(id);
