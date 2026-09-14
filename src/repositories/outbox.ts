@@ -99,12 +99,19 @@ export async function deleteOutboxEntry(id: string): Promise<void> {
 }
 
 /**
- * Day 2 scope only: record that a push attempt failed, without scheduling a
- * retry — Day 3 adds the actual backoff-with-jitter delay this same column
- * (`nextAttemptAt`) will drive. For now the row simply stays due immediately
- * and the drain loop will try it again next time it runs.
+ * Records that a push attempt failed. This function only writes what it's
+ * told — `nextAttemptAt` is computed by the caller (`src/lib/syncEngine.ts`,
+ * using `src/lib/backoff.ts`'s formula), not decided here. Keeping the
+ * *policy* (how long to wait, when to give up) in the sync engine and the
+ * *mechanism* (write these columns) in the repository is the same split
+ * every other repository function already draws between "what a screen
+ * asks for" and "how SQLite is actually touched."
  */
-export async function recordOutboxFailure(id: string, error: string): Promise<void> {
+export async function recordOutboxFailure(
+  id: string,
+  error: string,
+  nextAttemptAt: number,
+): Promise<void> {
   if (!isDbAvailable()) return;
   const db = requireDb();
   const rows = await db.select().from(outbox).where(eq(outbox.id, id));
@@ -112,6 +119,36 @@ export async function recordOutboxFailure(id: string, error: string): Promise<vo
   if (!current) return;
   await db
     .update(outbox)
-    .set({ attempts: current.attempts + 1, lastError: error })
+    .set({ attempts: current.attempts + 1, lastError: error, nextAttemptAt })
+    .where(eq(outbox.id, id));
+}
+
+/**
+ * Dev/UI-only: every outbox row, regardless of whether it's currently due.
+ * Used to build the Settings screen's "N pending, N failed" summary —
+ * `listPendingOutboxEntries` deliberately excludes dead-lettered rows
+ * (their `nextAttemptAt` is set far in the future), so the summary needs
+ * its own, unfiltered read.
+ */
+export async function listAllOutboxEntries(): Promise<OutboxEntry[]> {
+  if (!isDbAvailable()) return [];
+  const db = requireDb();
+  return db.select().from(outbox).orderBy(asc(outbox.createdAt));
+}
+
+/**
+ * The manual "Retry Failed" action (plan TC-16: "Fix the endpoint, press
+ * retry, watch it succeed"). Dead-lettered rows are excluded from the
+ * automatic drain loop on purpose (see `listPendingOutboxEntries`) — this
+ * is the one deliberate way back in: reset `nextAttemptAt` to now and
+ * `attempts` to 0, giving the row a genuinely fresh backoff cycle rather
+ * than immediately re-dead-lettering on its very next failure.
+ */
+export async function resetOutboxEntryForRetry(id: string): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  await db
+    .update(outbox)
+    .set({ attempts: 0, nextAttemptAt: now(), lastError: null })
     .where(eq(outbox.id, id));
 }

@@ -9,7 +9,7 @@
 
 import { and, eq, isNull } from "drizzle-orm";
 import { isDbAvailable, requireDb } from "@/db/client";
-import { answers, outbox, type Answer, type NewAnswer } from "@/db/schema";
+import { answers, outbox, type Answer, type NewAnswer, type SyncStatus } from "@/db/schema";
 import { newId } from "@/lib/id";
 import { now } from "@/lib/time";
 import { appendOutboxEntry } from "./outbox";
@@ -100,9 +100,9 @@ export async function saveAnswer(
   });
 }
 
-/** Sync-engine only — see the identical note on `markProjectSynced` in projects.ts. */
-export async function markAnswerSynced(id: string): Promise<void> {
+/** Sync-engine only — see the identical note on `setProjectSyncStatus` in projects.ts. */
+export async function setAnswerSyncStatus(id: string, status: SyncStatus): Promise<void> {
   if (!isDbAvailable()) return;
   const db = requireDb();
-  await db.update(answers).set({ syncStatus: "synced" }).where(eq(answers.id, id));
+  await db.update(answers).set({ syncStatus: status }).where(eq(answers.id, id));
 }

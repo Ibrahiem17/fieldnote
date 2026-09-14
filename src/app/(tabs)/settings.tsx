@@ -15,24 +15,37 @@ import { listProjects } from "@/repositories/projects";
 import { listInspections } from "@/repositories/inspections";
 import { countOutboxEntries } from "@/repositories/outbox";
 import { useAuth } from "@/auth/AuthProvider";
-import { drainOutbox, type DrainResult } from "@/lib/syncEngine";
+import {
+  drainOutbox,
+  retryDeadLetters,
+  getOutboxSummary,
+  type DrainResult,
+  type OutboxSummary,
+} from "@/lib/syncEngine";
 
 export default function SettingsScreen() {
   const theme = useTheme();
   const { session, signOut } = useAuth();
   const [counts, setCounts] = useState({ projects: 0, inspections: 0, outbox: 0 });
+  const [outboxSummary, setOutboxSummary] = useState<OutboxSummary>({
+    pending: 0,
+    deadLettered: 0,
+  });
   const [reseeding, setReseeding] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [lastSync, setLastSync] = useState<DrainResult | null>(null);
 
   const refreshCounts = useCallback(async () => {
-    const [projects, inspections, outboxTotal] = await Promise.all([
+    const [projects, inspections, outboxTotal, summary] = await Promise.all([
       listProjects(),
       listInspections(),
       countOutboxEntries(),
+      getOutboxSummary(),
     ]);
     setCounts({ projects: projects.length, inspections: inspections.length, outbox: outboxTotal });
+    setOutboxSummary(summary);
   }, []);
 
   useFocusEffect(
@@ -120,26 +133,66 @@ export default function SettingsScreen() {
             muted
             style={{ marginTop: theme.spacing.xs, marginBottom: theme.spacing.sm }}
           >
-            Manual for now — Day 2 scope. No automatic retry yet: a row that fails here stays in the
-            outbox and is tried again the next time you tap this.
+            Also runs on its own when your connection returns or you reopen the app — this button is
+            for right now, not the only way it happens.
           </Text>
-          <Button
-            label="Sync Now"
-            loading={syncing}
-            onPress={async () => {
-              setSyncing(true);
-              try {
-                const result = await drainOutbox();
-                setLastSync(result);
-                await refreshCounts();
-              } catch (e) {
-                console.error(e);
-                Alert.alert("Sync failed", String(e));
-              } finally {
-                setSyncing(false);
-              }
-            }}
-          />
+
+          <View
+            style={{ flexDirection: "row", gap: theme.spacing.sm, marginBottom: theme.spacing.sm }}
+          >
+            <Text variant="caption">{outboxSummary.pending} pending</Text>
+            <Text
+              variant="caption"
+              style={outboxSummary.deadLettered > 0 ? { color: theme.colors.danger } : undefined}
+            >
+              {outboxSummary.deadLettered} failed
+            </Text>
+          </View>
+
+          <View style={{ flexDirection: "row", gap: theme.spacing.sm }}>
+            <View style={{ flex: 1 }}>
+              <Button
+                label="Sync Now"
+                loading={syncing}
+                onPress={async () => {
+                  setSyncing(true);
+                  try {
+                    const result = await drainOutbox();
+                    setLastSync(result);
+                    await refreshCounts();
+                  } catch (e) {
+                    console.error(e);
+                    Alert.alert("Sync failed", String(e));
+                  } finally {
+                    setSyncing(false);
+                  }
+                }}
+              />
+            </View>
+            {outboxSummary.deadLettered > 0 ? (
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="Retry Failed"
+                  variant="secondary"
+                  loading={retrying}
+                  onPress={async () => {
+                    setRetrying(true);
+                    try {
+                      const result = await retryDeadLetters();
+                      setLastSync(result);
+                      await refreshCounts();
+                    } catch (e) {
+                      console.error(e);
+                      Alert.alert("Retry failed", String(e));
+                    } finally {
+                      setRetrying(false);
+                    }
+                  }}
+                />
+              </View>
+            ) : null}
+          </View>
+
           {lastSync ? (
             <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.xs }}>
               <Text variant="caption">

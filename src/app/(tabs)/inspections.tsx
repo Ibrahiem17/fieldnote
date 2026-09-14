@@ -9,7 +9,7 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { FlashList } from "@shopify/flash-list";
 
-import { Screen, Text, Card, Button, EmptyState, Badge } from "@/components";
+import { Screen, Text, Card, Button, EmptyState, Badge, SyncStatusDot } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { listInspections } from "@/repositories/inspections";
 import { listProjects } from "@/repositories/projects";
@@ -107,6 +107,9 @@ export default function InspectionsScreen() {
             <Text muted variant="caption">
               Updated {formatTimestamp(item.updatedAt)}
             </Text>
+            <View style={{ marginTop: theme.spacing.xs }}>
+              <SyncStatusDot status={item.syncStatus} />
+            </View>
           </Card>
         )}
         ListEmptyComponent={

@@ -29,6 +29,7 @@ import { ThemeProvider, useTheme } from "@/theme/ThemeProvider";
 import { Text } from "@/components";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import LoginScreen from "@/auth/LoginScreen";
+import { startAutoSync } from "@/lib/syncTriggers";
 
 export default function RootLayout() {
   return (
@@ -52,9 +53,28 @@ function AuthGate() {
   const { session, loading } = useAuth();
   const theme = useTheme();
 
+  // Connectivity/foreground auto-sync (plan Section 3.3.3) — only ever
+  // worth starting once someone's actually signed in; there's nothing to
+  // push before that. The `session` object itself changes reference on
+  // every token refresh, so the effect keys on whether one exists at all
+  // (`Boolean(session)`), not the object itself — starting and stopping
+  // the listeners on every silent refresh would be pure churn.
+  useEffect(() => {
+    if (!session) return;
+    return startAutoSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: keyed on presence, not identity
+  }, [Boolean(session)]);
+
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.bg }}>
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: theme.colors.bg,
+        }}
+      >
         <ActivityIndicator color={theme.colors.primary} />
       </View>
     );

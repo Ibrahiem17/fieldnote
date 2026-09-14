@@ -1028,3 +1028,67 @@ export async function markProjectSynced(id: string): Promise<void> {
 ```
 
 Every other write in this file runs inside `db.transaction(...)` and calls `appendOutboxEntry(...)` — because every other write represents something a person just did, which still needs to reach the server eventually. This function runs the moment the server confirms it already _has_ that change; writing another outbox entry here would queue up a pointless echo of a trip that already succeeded, which is exactly why this one function in the whole repository skips both the transaction and the outbox call. It isn't a shortcut — it's the one case where those two things genuinely don't apply.
+
+---
+
+## Phase 3, Day 3 — retry, backoff, and knowing when to give up
+
+### `src/lib/backoff.ts` — the formula, one line at a time
+
+```ts
+export function computeBackoffDelayMs(attempts: number): number {
+  const raw = Math.min(BASE_DELAY_MS * Math.pow(2, attempts), MAX_DELAY_MS);
+  const jittered = raw * (0.5 + Math.random() * 0.5);
+  return Math.round(jittered);
+}
+```
+
+`Math.pow(2, attempts)` — 2 raised to the power of `attempts`: `2^0 = 1`, `2^1 = 2`, `2^2 = 4`, `2^3 = 8`... this is what makes the delay **double** each time, rather than just growing by a fixed amount. `BASE_DELAY_MS * Math.pow(2, attempts)` turns that doubling sequence of plain numbers (1, 2, 4, 8...) into actual milliseconds (1000, 2000, 4000, 8000...). `Math.min(raw, MAX_DELAY_MS)` — "whichever of these two numbers is smaller" — is the cap: once the doubling would produce something bigger than five minutes, this line always hands back five minutes instead, no matter how large `attempts` gets.
+
+`Math.random()` returns a random decimal between 0 (inclusive) and 1 (exclusive) — a different one every time it's called, with no way to predict it in advance. `0.5 + Math.random() * 0.5` takes that "somewhere between 0 and 1" and reshapes it into "somewhere between 0.5 and 1" instead: `Math.random() * 0.5` alone gives a random amount between 0 and 0.5, and adding the fixed `0.5` shifts that whole range up. Multiplying the capped delay by this number — the **jitter** — means the actual wait is always somewhere between 50% and 100% of the "ideal" doubling value, different every single time this function is called, even with the exact same `attempts` number going in.
+
+`Math.round(...)` rounds to the nearest whole number, because a delay of `1414.7182818...` milliseconds isn't a meaningful improvement over `1415` — the function's caller just needs whole milliseconds to hand to a timer.
+
+### `src/lib/syncEngine.ts#isDeadLettered` — one function, so two different callers can't disagree
+
+```ts
+function isDeadLettered(entry: OutboxEntry): boolean {
+  return entry.nextAttemptAt !== null && entry.nextAttemptAt > now() + MAX_DELAY_MS;
+}
+```
+
+This reads as: "this row counts as dead-lettered if it has a `nextAttemptAt` at all, **and** that time is further away than the longest delay a real backoff calculation could ever produce." Anything scheduled sooner than that is a normal, still-alive retry waiting its turn; anything scheduled further out than any real formula could produce must be the special "come back in about a year" value `pushOne` writes on purpose when it gives up on a row. Both `getOutboxSummary()` (the Settings screen's "N failed" count) and `retryDeadLetters()` (the "Retry Failed" button) call this exact same function rather than each writing their own version of the same check — the earlier draft of this code didn't do that (see `docs/DESIGN.md` D-020 for the bug that caused, and why sharing one function is the actual fix, not just a tidiness preference).
+
+### `src/lib/syncEngine.ts#pushOne` — the three-way branch a failed push takes
+
+```ts
+const attemptsAfterThis = entry.attempts + 1;
+const isDead = !pushResult.retryable || attemptsAfterThis >= MAX_ATTEMPTS;
+const nextAttemptAt = isDead
+  ? DEAD_LETTER_NEXT_ATTEMPT()
+  : now() + computeBackoffDelayMs(entry.attempts);
+```
+
+`!pushResult.retryable` — the `!` (logical NOT) flips a boolean; this reads as "the result says this failure is _not_ worth retrying." `||` is logical OR — the whole expression is true if _either_ side is true, so a row is treated as dead exactly when the failure is permanent by its own nature, **or** when this failure would be its `MAX_ATTEMPTS`-th, whichever happens first. The ternary (`condition ? a : b`, already explained elsewhere in this project) then picks between the two possible outcomes: the far-future sentinel for a dead row, or a genuinely computed backoff delay — using `entry.attempts` (the count _before_ this failure), since `computeBackoffDelayMs` is asking "how long should the wait be, given how many times this has already failed."
+
+### `src/lib/syncTriggers.ts` — listening for "you're back," two different ways
+
+```ts
+const unsubscribeNetInfo = NetInfo.addEventListener((state) => {
+  const isConnected = Boolean(state.isConnected && state.isInternetReachable !== false);
+  if (isConnected && wasConnected === false) {
+    void triggerSync("reconnected");
+  }
+  wasConnected = isConnected;
+});
+```
+
+`NetInfo.addEventListener(callback)` registers a function that runs every time the device's network state changes, and returns an "unsubscribe" function to stop listening later — the same shape as `supabase.auth.onAuthStateChange` in `AuthProvider.tsx`. `state.isInternetReachable !== false` reads oddly on purpose: this value can be `true`, `false`, **or** `null` (meaning "still checking, don't know yet"). Treating only a confirmed `false` as "not connected" — rather than requiring a confirmed `true` — means a `null` (unknown) state doesn't get mistaken for being offline.
+
+`wasConnected === false` (not simply `!wasConnected`) matters here for a subtle reason: `wasConnected` starts as `null` ("we haven't observed a state yet"), and `!null` is `true` — so without the explicit `=== false` comparison, the very first network event the app ever observes could look like a reconnection even though the app was never actually known to be disconnected before. Comparing against the literal `false` means only a real, previously-observed "was disconnected" counts.
+
+`void triggerSync("reconnected")` — `triggerSync` is an `async` function, meaning calling it returns a Promise; `void` is TypeScript/JavaScript's explicit way of saying "yes, I know this returns a Promise, and I am deliberately not awaiting or storing it" — silencing what would otherwise be a linter warning about an ignored Promise, since this callback itself isn't `async` and has nowhere to `await` it.
+
+### `src/components/SyncStatusDot.tsx` — a second small badge, deliberately not the first one reused
+
+This component looks almost identical to `Badge.tsx` (a colour looked up from a `Record`, a small pill of text) — and that's fine, because it's answering a genuinely different question. `Badge` shows an inspection's own **workflow** status — draft, in progress, completed, submitted — something about the inspection's content. `SyncStatusDot` shows whether that same row has actually reached the server yet — completely independent of how finished the inspection itself is. A `"Completed"` inspection can very reasonably also be `"pending"` (finished, just not synced yet) — two labels about two different things, which is exactly why they're two small components instead of one component trying to describe both at once.

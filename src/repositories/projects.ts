@@ -7,7 +7,7 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { isDbAvailable, requireDb } from "@/db/client";
-import { projects, type NewProject, type Project } from "@/db/schema";
+import { projects, type NewProject, type Project, type SyncStatus } from "@/db/schema";
 import { newId } from "@/lib/id";
 import { now } from "@/lib/time";
 import { appendOutboxEntry } from "./outbox";
@@ -99,17 +99,18 @@ export async function updateProject(id: string, patch: Partial<NewProjectInput>)
 }
 
 /**
- * Sync-engine only (src/lib/syncEngine.ts) — stamps `syncStatus: "synced"`
- * directly, with no transaction and no outbox write. Every other function
- * in this file appends an outbox row because it represents something the
- * user did that still needs to reach the server; this function is called
- * *because* that trip already succeeded, so writing another outbox row here
- * would just queue up a pointless echo of a change that already landed.
+ * Sync-engine only (src/lib/syncEngine.ts) — stamps `syncStatus` directly,
+ * with no transaction and no outbox write. Every other function in this
+ * file appends an outbox row because it represents something the user did
+ * that still needs to reach the server; this function instead reports how
+ * that trip is *going* ("about to try," "synced," "waiting to retry,"
+ * "given up") — writing another outbox row here would queue a pointless
+ * echo of a change that's already in flight or already landed.
  */
-export async function markProjectSynced(id: string): Promise<void> {
+export async function setProjectSyncStatus(id: string, status: SyncStatus): Promise<void> {
   if (!isDbAvailable()) return;
   const db = requireDb();
-  await db.update(projects).set({ syncStatus: "synced" }).where(eq(projects.id, id));
+  await db.update(projects).set({ syncStatus: status }).where(eq(projects.id, id));
 }
 
 export async function softDeleteProject(id: string): Promise<void> {

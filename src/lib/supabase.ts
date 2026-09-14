@@ -62,7 +62,8 @@ const secureStoreAdapter = {
  * use the real, encrypted secureStoreAdapter above.
  */
 const webStorageAdapter = {
-  getItem: async (key: string) => (typeof localStorage === "undefined" ? null : localStorage.getItem(key)),
+  getItem: async (key: string) =>
+    typeof localStorage === "undefined" ? null : localStorage.getItem(key),
   setItem: async (key: string, value: string) => {
     if (typeof localStorage !== "undefined") localStorage.setItem(key, value);
   },

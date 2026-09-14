@@ -6,15 +6,15 @@ below claims more than what's actually been written and verified.
 
 ## Status
 
-| Day | Topic                                            | Status                                                           |
-| --- | ------------------------------------------------ | ---------------------------------------------------------------- |
-| 1   | Backend, auth, RLS                               | **Done, live-verified**                                          |
-| 2   | Push and idempotency                             | **Done — server proven live; client drain unverified on device** |
-| 3   | Retry, backoff, connectivity triggers, status UI | Not yet built                                                    |
-| 4   | Pull, cursors, tombstones                        | Not yet built                                                    |
-| 5   | Conflict resolution                              | Not yet built                                                    |
-| 6   | File upload, background execution                | Not yet built                                                    |
-| 7   | Test cases, final review                         | Not yet built                                                    |
+| Day | Topic                                            | Status                                                                           |
+| --- | ------------------------------------------------ | -------------------------------------------------------------------------------- |
+| 1   | Backend, auth, RLS                               | **Done, live-verified**                                                          |
+| 2   | Push and idempotency                             | **Done — server proven live; client drain unverified on device**                 |
+| 3   | Retry, backoff, connectivity triggers, status UI | **Done — formula and classification proven live; triggers unverified on device** |
+| 4   | Pull, cursors, tombstones                        | Not yet built                                                                    |
+| 5   | Conflict resolution                              | Not yet built                                                                    |
+| 6   | File upload, background execution                | Not yet built                                                                    |
+| 7   | Test cases, final review                         | Not yet built                                                                    |
 
 ## 1. Authentication (Day 1)
 
@@ -132,13 +132,77 @@ worked examples once Day 5 actually implements detection and merging —
 writing the policy before the code that enforces it exists would be a set of
 promises, not a specification of what the app does.
 
-## 5. Failure handling
+## 5. Failure handling (Day 3)
 
-**Not yet built** beyond what Day 1 already covers above (token refresh).
-Will cover: no network, server error, token expired mid-sync, app killed
-mid-sync, once Day 2/3 exist to fail in those ways.
+**Classification (`src/lib/syncApi.ts#isRetryable`):** every push failure is
+either retryable or permanent, decided from the Postgres/PostgREST error
+code `sync_push` (D-019) returns:
+
+| Code          | Meaning                                              | Treated as                                                                                                                                            |
+| ------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `42501`       | RLS or a missing grant rejected the request          | Permanent — dead-letter immediately                                                                                                                   |
+| `22023`       | Bad parameter (an unknown `entity_type`/`operation`) | Permanent — this is a code bug, not a network blip                                                                                                    |
+| `28000`       | Not signed in                                        | Permanent                                                                                                                                             |
+| `23503`       | Foreign-key violation                                | **Retryable** — almost always means a child (an inspection) reached the server before its parent (the project); resolves itself once the parent syncs |
+| anything else | Network failure, timeout, a 500                      | Retryable                                                                                                                                             |
+
+**Backoff (`src/lib/backoff.ts`):** a retryable failure gets a fresh delay,
+`min(1000ms * 2^attempts, 300_000ms)`, then scaled to 50–100% of that value
+for jitter (plan Section 2.6 — spreads many devices' retries apart so they
+don't all hit the server in the same instant after, say, a shared outage
+ends). Logged directly, not through the app, for one real run:
+
+```
+attempts=0 -> 711ms      attempts=4 -> 8.7s      attempts=8  -> 193s
+attempts=1 -> 2.0s       attempts=5 -> 22.1s     attempts=9  -> 265s (capped region)
+attempts=2 -> 2.5s       attempts=6 -> 60.7s     attempts=10 -> 222s
+attempts=3 -> 5.8s       attempts=7 -> 92.1s     attempts=11 -> 163s
+```
+
+Growth is visible through the early attempts, and the cap plus jitter both
+show up once attempts get large — later values bounce around under 300s
+rather than climbing forever or repeating identically.
+
+**Dead-lettering:** after `MAX_ATTEMPTS` (8) retryable failures, or
+immediately for a permanent one, a row stops being retried automatically —
+`nextAttemptAt` is set far enough in the future (`src/lib/syncEngine.ts`'s
+`isDeadLettered`, D-020) that the drain loop's own "is this due yet?" filter
+naturally excludes it. The row is not deleted and nothing is lost; it sits
+visibly in the outbox until a human acts on it. The Settings screen's "N
+failed" count and "Retry Failed" button (plan TC-16) are that action —
+retrying resets `attempts` to 0 and `nextAttemptAt` to now, giving the row a
+genuinely fresh attempt rather than instantly re-dead-lettering.
+
+**Connectivity and foreground triggers (`src/lib/syncTriggers.ts`):** an
+automatic drain fires when `NetInfo` reports the OFF→ON transition (not
+every network event — a Wi-Fi/cellular handoff isn't a reconnection) and
+when `AppState` reports the app becoming active again, on top of the manual
+"Sync Now" button. A module-level guard prevents two triggers firing close
+together from starting overlapping drains.
+
+**What's live-verified versus what isn't:** the backoff formula and the
+error-code classification table above were both proven directly — the
+formula by running it and reading real numbers back (above), the
+classification by Day 2's live script confirming `sync_push` actually
+returns `23503` for the missing-parent case it's built to detect. What
+hasn't been exercised end to end, for the same reason as every Day 2/3
+client-side gap: `NetInfo`/`AppState` firing and actually triggering a real
+drain against a real outbox needs a physical device — this web preview has
+no real SQLite (D-010) and no real "airplane mode off" event to produce.
 
 ## 6. `sync_status` state diagram
 
-**Not yet built** — the column already exists on every local table
-(Phase 1), but nothing drives it yet. Comes with Day 2's push logic.
+```
+local ──push──▶ syncing ──ok────────────▶ synced
+                  │
+                  ├──retryable─────────▶ pending ──(backoff elapses)──▶ syncing
+                  ├──permanent, or
+                  │  max attempts───────▶ failed  ──(manual "Retry Failed")──▶ syncing
+                  └──(Day 5) 409────────▶ conflict ──resolved──▶ pending
+```
+
+Matches the plan's own Section 4.4 diagram, with one addition: `failed`
+(dead-lettered) only ever moves again through the deliberate, manual "Retry
+Failed" action (`src/lib/syncEngine.ts#retryDeadLetters`) — never on its
+own, since a dead letter existing at all means something needs a human's
+attention, not another silent automatic attempt.
