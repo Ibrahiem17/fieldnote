@@ -1092,3 +1092,72 @@ const unsubscribeNetInfo = NetInfo.addEventListener((state) => {
 ### `src/components/SyncStatusDot.tsx` — a second small badge, deliberately not the first one reused
 
 This component looks almost identical to `Badge.tsx` (a colour looked up from a `Record`, a small pill of text) — and that's fine, because it's answering a genuinely different question. `Badge` shows an inspection's own **workflow** status — draft, in progress, completed, submitted — something about the inspection's content. `SyncStatusDot` shows whether that same row has actually reached the server yet — completely independent of how finished the inspection itself is. A `"Completed"` inspection can very reasonably also be `"pending"` (finished, just not synced yet) — two labels about two different things, which is exactly why they're two small components instead of one component trying to describe both at once.
+
+---
+
+## Phase 3, Day 4 — pulling changes down
+
+### `src/db/schema.ts` — `syncState`, a table with no `commonColumns()`
+
+```ts
+export const syncState = sqliteTable("sync_state", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+```
+
+Two plain columns, `key` and `value` — this is the **key/value** pattern: instead of one column per fact this table needs to remember (which would mean a schema change every time a new fact needs storing), it stores an arbitrary number of `"name" -> "value"` pairs as rows, and adding a new fact later just means writing a new row with a new key, no migration required. Right now exactly one row ever exists (`key: "lastSyncedAt"`), but the shape scales to more without changing the table. Like `outbox`, this table deliberately doesn't spread in `commonColumns()` (`id`/`createdAt`/`updatedAt`/`deletedAt`/`syncStatus`) — a cursor is never itself synced, edited by a person, or soft-deleted, so those columns would just be dead weight here, the same reasoning `docs/DESIGN.md` D-005 already gave for `outbox`.
+
+### `src/repositories/syncState.ts#setLastSyncedAt` — `onConflictDoUpdate`, explained
+
+```ts
+await db
+  .insert(syncState)
+  .values({ key: CURSOR_KEY, value })
+  .onConflictDoUpdate({ target: syncState.key, set: { value } });
+```
+
+This is an **upsert** — "insert, but if a row with this same key already exists, update it instead of failing." Reading it as a sentence: "try to insert this row; if that would conflict on the `key` column (because a row with this key is already there), then instead run this update." `target: syncState.key` names which column's clash counts as "already exists" — here, the primary key. Without this, saving the cursor a second time would either throw a duplicate-primary-key error, or require writing `SELECT` first (does a row exist?) and `INSERT` or `UPDATE` afterwards by hand, in two separate statements with a gap between them where another read could interleave. `onConflictDoUpdate` does both possibilities in the one atomic statement.
+
+### `src/lib/syncPull.ts#pullTable` — one generic function shared by three different tables
+
+```ts
+async function pullTable<Row extends { id: string; server_updated_at: string }>(
+  table: "projects" | "inspections" | "answers",
+  cursor: string,
+  applyRow: (row: Row) => Promise<void>,
+): Promise<{ maxServerUpdatedAt: string; pulled: number; merged: number; skipped: number }> {
+```
+
+`<Row extends { id: string; server_updated_at: string }>` is a **generic constraint**: this function works with _any_ row shape, as long as that shape has at least an `id` and a `server_updated_at` — the two fields this function's own logic actually needs to touch, regardless of which table the row came from. `applyRow: (row: Row) => Promise<void>` is a function passed in _as an argument_ (already familiar from `FieldComponent`'s `onScheduleSave` prop, or `Array.prototype.map`'s own callback) — `pullTable` handles everything every table's pull has in common (running the query, tracking the newest timestamp seen, checking for a pending local change, counting merged vs skipped), and lets each caller supply only the one thing that's actually different per table: how to turn _this_ table's raw row into a call to _that_ table's own `applyPulledX` function.
+
+```ts
+if (row.server_updated_at > maxServerUpdatedAt) {
+  maxServerUpdatedAt = row.server_updated_at;
+}
+```
+
+`server_updated_at` here is a plain string (an ISO-8601 timestamp, e.g. `"2026-09-14T10:23:45.123456+00:00"`), and `>` is being used to compare two strings, not two numbers. This works correctly specifically because ISO-8601 timestamps, written consistently (same timezone offset, same field widths, most-significant part first — year, then month, then day...), sort into the same order alphabetically as they do chronologically. It's the same property that lets filenames like `2026-09-01-notes.txt` and `2026-09-14-notes.txt` list in date order in an ordinary file browser with no special date-parsing at all.
+
+### `src/repositories/projects.ts#applyPulledProject` — the pull-side twin of `setProjectSyncStatus`
+
+```ts
+export async function applyPulledProject(row: Omit<NewProject, "syncStatus">): Promise<void> {
+  const values: NewProject = { ...row, syncStatus: "synced" };
+  await db.insert(projects).values(values).onConflictDoUpdate({ target: projects.id, set: values });
+}
+```
+
+`Omit<NewProject, "syncStatus">` (an already-familiar utility type, alongside `Pick`/`Partial` used elsewhere in this project) means "every field `NewProject` has, except `syncStatus`" — this function's caller (`syncPull.ts`) supplies every real column from the server, but never gets to decide the sync status of a row it's handing over, because that's not the caller's decision to make: a row that just arrived _from_ the server is `"synced"` by definition, every single time, with no other value ever making sense here. Building that fact into the parameter type — rather than just trusting every call site to pass the right thing — means a future call site that forgot `syncStatus` (impossible, `Omit` removed it) or supplied the wrong one (impossible, this function decides it) simply cannot happen, instead of relying on every future caller remembering the rule.
+
+### `src/lib/sync.ts#runSync` — one door for "just sync," so an ordering rule only has to be written once
+
+```ts
+export async function runSync(): Promise<SyncResult> {
+  const push = await drainOutbox();
+  const pull = await pullChanges();
+  return { push, pull };
+}
+```
+
+Nothing complicated syntactically — two `await`s in a row, one after the other finishes — but the _reason_ it's its own tiny file matters: both the manual "Sync Now" button and the automatic connectivity/foreground triggers need "push, then pull," in exactly that order, every time. Without this file, that ordering would have to be remembered and re-typed correctly at every place that ever wants to trigger a sync — and the moment one of those places got the order backwards (or forgot the pull entirely), it would be a bug that's easy to introduce and hard to notice, since both push and pull would still work fine individually. One function, called from everywhere, means the rule can only be right or wrong in one place.

@@ -113,6 +113,27 @@ export async function setProjectSyncStatus(id: string, status: SyncStatus): Prom
   await db.update(projects).set({ syncStatus: status }).where(eq(projects.id, id));
 }
 
+/**
+ * Sync-engine only (src/lib/syncPull.ts) — writes a row that came FROM the
+ * server, not from the user. Upserts by id (insert if this device has
+ * never seen this project, update if it has) and always stamps
+ * `syncStatus: "synced"` — a pulled row is, by definition, already in
+ * agreement with the server, since it just came from there. No outbox
+ * entry: appending one would immediately queue this exact row to be
+ * pushed straight back to where it came from.
+ *
+ * The caller (`src/lib/syncPull.ts`) is responsible for the one rule that
+ * actually matters here: never call this for a project that has a pending
+ * (unsynced) local outbox entry. That check happens there, once, for every
+ * entity type — not repeated inside each repository's apply function.
+ */
+export async function applyPulledProject(row: Omit<NewProject, "syncStatus">): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  const values: NewProject = { ...row, syncStatus: "synced" };
+  await db.insert(projects).values(values).onConflictDoUpdate({ target: projects.id, set: values });
+}
+
 export async function softDeleteProject(id: string): Promise<void> {
   if (!isDbAvailable()) {
     throw new Error("softDeleteProject is not available in preview mode");

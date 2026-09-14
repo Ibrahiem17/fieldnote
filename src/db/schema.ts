@@ -190,6 +190,30 @@ export const outbox = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// sync_state — Phase 3, Day 4. A tiny key/value table (one row per key)
+// holding the pull cursor: "the server timestamp of the newest change
+// we've already pulled." Its own table, not a column bolted onto some
+// other row, because a cursor isn't data about a project or an
+// inspection — it's data about the SYNC PROCESS itself, and belongs
+// nowhere else. Like `outbox`, it deliberately does NOT share
+// commonColumns() — a cursor is never itself synced, edited by a user, or
+// soft-deleted.
+// ---------------------------------------------------------------------------
+
+export const syncState = sqliteTable("sync_state", {
+  key: text("key").primaryKey(),
+  // Stored as the exact ISO-8601 string Postgres's `server_updated_at`
+  // (a `timestamptz`) returns over the wire — never converted to or from
+  // epoch-ms locally. Passing it straight back to PostgREST as a `gt.`
+  // filter avoids any round-trip parsing that could introduce a timezone
+  // or precision bug into the one value this entire phase depends on
+  // being compared correctly (docs/DESIGN.md D-017's "server clock only"
+  // rule extends to how the cursor itself is stored, not just how
+  // conflicts are judged).
+  value: text("value").notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred TypeScript types — one source of truth, no hand-written duplicates
 // ---------------------------------------------------------------------------
 
@@ -210,3 +234,5 @@ export type NewAttachment = typeof attachments.$inferInsert;
 
 export type OutboxEntry = typeof outbox.$inferSelect;
 export type NewOutboxEntry = typeof outbox.$inferInsert;
+
+export type SyncStateRow = typeof syncState.$inferSelect;

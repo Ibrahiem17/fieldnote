@@ -11,7 +11,7 @@ below claims more than what's actually been written and verified.
 | 1   | Backend, auth, RLS                               | **Done, live-verified**                                                          |
 | 2   | Push and idempotency                             | **Done — server proven live; client drain unverified on device**                 |
 | 3   | Retry, backoff, connectivity triggers, status UI | **Done — formula and classification proven live; triggers unverified on device** |
-| 4   | Pull, cursors, tombstones                        | Not yet built                                                                    |
+| 4   | Pull, cursors, tombstones                        | **Done — resurrection prevention proven live; local merge unverified on device** |
 | 5   | Conflict resolution                              | Not yet built                                                                    |
 | 6   | File upload, background execution                | Not yet built                                                                    |
 | 7   | Test cases, final review                         | Not yet built                                                                    |
@@ -118,12 +118,81 @@ table) never opens at all (D-010) — there is nothing to drain here. That
 round trip needs a physical device, same as every other on-device gap this
 project has been honest about from Phase 1 onward.
 
-## 3. Pull protocol
+## 3. Pull protocol (Day 4)
 
-**Not yet built.** Will cover: the `last_synced_at` cursor, why it advances
-on the **server's** timestamp (`server_updated_at`, D-017) and never a
-device's own clock, and how a batch's cursor only advances after the whole
-batch is applied (so a crash mid-merge can't silently skip rows).
+**The request:** three plain reads, not an RPC (unlike push — see
+`docs/DESIGN.md` D-021 for why the two chose differently), one per synced
+table:
+
+```ts
+supabase
+  .from("inspections")
+  .select("*")
+  .gt("server_updated_at", cursor) // an ISO-8601 string, straight from Postgres
+  .order("server_updated_at", { ascending: true });
+```
+
+**The cursor** is "the server timestamp of the newest change already
+pulled" — stored in a new local table, `sync_state` (`src/db/schema.ts`,
+migration `0002`), as the literal ISO-8601 string Postgres returned, never
+converted to this project's usual epoch-ms shape. It advances on the
+**server's** clock only (`server_updated_at`, D-017) — a device's own
+`updated_at` is fine to display, never to decide what's "already seen."
+Before any pull has ever run, the cursor defaults to the Unix epoch —
+everything looks new.
+
+**Merging:** for each pulled row, oldest first —
+
+1. Does this entity have a pending outbox entry (an unsynced local edit)?
+   **Yes** → leave it alone. Completely. Not a partial merge, not "take the
+   newer field" — Day 5 owns that decision, and guessing at it a day early
+   would very likely need rebuilding once the real policy exists.
+2. **No** → upsert it into local SQLite (`applyPulledProject`/
+   `applyPulledInspection`/`applyPulledAnswer` — insert if this device has
+   never seen the row, update if it has), stamped `syncStatus: "synced"`,
+   no outbox entry written (it would just queue the row to be pushed
+   straight back to where it came from).
+
+**The cursor only advances once every table's rows in this run have
+applied successfully** — computed as the newest `server_updated_at` seen
+across all three tables, written once at the very end. A crash partway
+through leaves the cursor exactly where it was; the next pull re-fetches
+the same rows, and re-applying them is harmless (it's an upsert either
+way), so nothing is silently skipped.
+
+**Tombstones and the resurrection bug — live-verified, not just reasoned
+about (full detail: `docs/DESIGN.md` D-021):** a deleted row comes down
+exactly like any other pulled row — same query, same shape — just with
+`deleted_at` populated instead of null; there is no separate tombstone
+table or special pull path. The classic failure mode (plan Section 2.7):
+Device A deletes a row and syncs; Device B, offline, made an older edit and
+pushes it later — does B's push resurrect the row? A throwaway script
+proved it does not, against the real backend: after A's delete set
+`deleted_at`, pushing B's stale field-only update (the exact payload shape
+`updateInspection` produces — no `deletedAt` key at all) left `deleted_at`
+untouched, and a pull run immediately after still saw the tombstone intact.
+This works because `sync_push`'s update branch (D-019) only ever writes
+`deleted_at` when a payload explicitly carries that key — an ordinary
+field edit structurally cannot clear it, so this specific bug was already
+prevented before Day 4 started; Day 4 confirmed it live rather than taking
+that on faith.
+
+**What's live-verified versus what isn't:** the query shape, the
+resurrection-prevention property, and a tombstone surviving a stale
+concurrent update were all run for real. The actual local merge — writing
+a pulled row into SQLite, and correctly leaving a row alone when it has a
+pending outbox entry — has not been exercised end to end, because this web
+preview's real SQLite never opens (D-010): there's no real local row for
+either code path to touch.
+
+**Ordering — push before pull (plan Section 4.3):** `src/lib/sync.ts#runSync()`
+is the one place that runs both, in that order, and it's what the manual
+"Sync Now" button and the automatic connectivity/foreground triggers both
+call now — never `drainOutbox()`/`pullChanges()` directly from a screen or
+trigger. Pushing first means this device's own pending changes reach the
+server before it asks "what's new?" — otherwise a pull could bring down a
+now-stale server version of something this device was about to overwrite
+anyway, on every single sync, for no reason.
 
 ## 4. Conflict policy
 

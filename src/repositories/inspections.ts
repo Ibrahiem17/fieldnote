@@ -136,6 +136,17 @@ export async function setInspectionSyncStatus(id: string, status: SyncStatus): P
   await db.update(inspections).set({ syncStatus: status }).where(eq(inspections.id, id));
 }
 
+/** Sync-engine only (src/lib/syncPull.ts) — see the identical note on `applyPulledProject` in projects.ts. */
+export async function applyPulledInspection(row: Omit<NewInspection, "syncStatus">): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  const values: NewInspection = { ...row, syncStatus: "synced" };
+  await db
+    .insert(inspections)
+    .values(values)
+    .onConflictDoUpdate({ target: inspections.id, set: values });
+}
+
 export async function softDeleteInspection(id: string): Promise<void> {
   if (!isDbAvailable()) {
     mock.softDeleteInspection(id);

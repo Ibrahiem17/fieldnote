@@ -106,3 +106,11 @@ export async function setAnswerSyncStatus(id: string, status: SyncStatus): Promi
   const db = requireDb();
   await db.update(answers).set({ syncStatus: status }).where(eq(answers.id, id));
 }
+
+/** Sync-engine only (src/lib/syncPull.ts) — see the identical note on `applyPulledProject` in projects.ts. */
+export async function applyPulledAnswer(row: Omit<NewAnswer, "syncStatus">): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  const values: NewAnswer = { ...row, syncStatus: "synced" };
+  await db.insert(answers).values(values).onConflictDoUpdate({ target: answers.id, set: values });
+}

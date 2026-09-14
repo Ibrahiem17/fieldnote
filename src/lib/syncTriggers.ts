@@ -1,30 +1,31 @@
 // src/lib/syncTriggers.ts
 //
-// Automatic sync triggers (plan Section 3.3.3): drain the outbox when
-// connectivity returns and when the app comes back to the foreground, on
-// top of the manual "Sync Now" button Day 2 already built. Started once,
+// Automatic sync triggers (plan Section 3.3.3): run a full push-then-pull
+// (src/lib/sync.ts) when connectivity returns and when the app comes back
+// to the foreground, on top of the manual "Sync Now" button. Started once,
 // from src/app/_layout.tsx, only once a session actually exists — there's
-// nothing to push before someone's signed in.
+// nothing to sync before someone's signed in.
 
 import NetInfo from "@react-native-community/netinfo";
 import { AppState, type AppStateStatus } from "react-native";
 
-import { drainOutbox } from "./syncEngine";
+import { runSync } from "./sync";
 
 let syncInFlight = false;
 
 async function triggerSync(reason: string): Promise<void> {
   // Guards against two triggers firing close together (e.g. the app comes
   // to the foreground at the exact moment Wi-Fi reconnects) from starting
-  // two overlapping drains — drainOutbox() is already written to push one
-  // row at a time in order, and two of them running at once would defeat
-  // that ordering guarantee.
+  // two overlapping syncs — both the push and pull sides already assume
+  // they're the only thing touching the outbox/cursor at a time.
   if (syncInFlight) return;
   syncInFlight = true;
   try {
-    const result = await drainOutbox();
-    if (result.synced > 0 || result.failed > 0) {
-      console.log(`[sync] auto-sync (${reason}): ${result.synced} synced, ${result.failed} failed`);
+    const result = await runSync();
+    if (result.push.synced > 0 || result.push.failed > 0 || result.pull.merged > 0) {
+      console.log(
+        `[sync] auto-sync (${reason}): pushed ${result.push.synced} (${result.push.failed} failed), pulled ${result.pull.merged}`,
+      );
     }
   } catch (e) {
     console.error(`[sync] auto-sync (${reason}) threw`, e);

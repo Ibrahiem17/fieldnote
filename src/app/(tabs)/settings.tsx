@@ -16,12 +16,12 @@ import { listInspections } from "@/repositories/inspections";
 import { countOutboxEntries } from "@/repositories/outbox";
 import { useAuth } from "@/auth/AuthProvider";
 import {
-  drainOutbox,
   retryDeadLetters,
   getOutboxSummary,
   type DrainResult,
   type OutboxSummary,
 } from "@/lib/syncEngine";
+import { runSync, type SyncResult } from "@/lib/sync";
 
 export default function SettingsScreen() {
   const theme = useTheme();
@@ -35,7 +35,8 @@ export default function SettingsScreen() {
   const [signingOut, setSigningOut] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  const [lastSync, setLastSync] = useState<DrainResult | null>(null);
+  const [lastSync, setLastSync] = useState<SyncResult | null>(null);
+  const [lastRetry, setLastRetry] = useState<DrainResult | null>(null);
 
   const refreshCounts = useCallback(async () => {
     const [projects, inspections, outboxTotal, summary] = await Promise.all([
@@ -157,7 +158,7 @@ export default function SettingsScreen() {
                 onPress={async () => {
                   setSyncing(true);
                   try {
-                    const result = await drainOutbox();
+                    const result = await runSync();
                     setLastSync(result);
                     await refreshCounts();
                   } catch (e) {
@@ -179,7 +180,7 @@ export default function SettingsScreen() {
                     setRetrying(true);
                     try {
                       const result = await retryDeadLetters();
-                      setLastSync(result);
+                      setLastRetry(result);
                       await refreshCounts();
                     } catch (e) {
                       console.error(e);
@@ -196,9 +197,27 @@ export default function SettingsScreen() {
           {lastSync ? (
             <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.xs }}>
               <Text variant="caption">
-                Last run: {lastSync.synced} synced, {lastSync.failed} failed.
+                Pushed: {lastSync.push.synced} synced, {lastSync.push.failed} failed. Pulled:{" "}
+                {lastSync.pull.merged} merged
+                {lastSync.pull.skippedForPendingLocalChange > 0
+                  ? `, ${lastSync.pull.skippedForPendingLocalChange} left alone (you have unsynced edits there)`
+                  : ""}
+                .
               </Text>
-              {lastSync.errors.map((e, i) => (
+              {lastSync.push.errors.map((e, i) => (
+                <Text key={i} variant="caption" style={{ color: theme.colors.danger }}>
+                  {e.entityType} {e.entityId.slice(0, 8)}: {e.error}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+
+          {lastRetry ? (
+            <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.xs }}>
+              <Text variant="caption">
+                Retry: {lastRetry.synced} synced, {lastRetry.failed} still failing.
+              </Text>
+              {lastRetry.errors.map((e, i) => (
                 <Text key={i} variant="caption" style={{ color: theme.colors.danger }}>
                   {e.entityType} {e.entityId.slice(0, 8)}: {e.error}
                 </Text>
