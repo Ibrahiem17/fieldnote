@@ -13,8 +13,8 @@ below claims more than what's actually been written and verified.
 | 3   | Retry, backoff, connectivity triggers, status UI | **Done — formula and classification proven live; triggers unverified on device**                      |
 | 4   | Pull, cursors, tombstones                        | **Done — resurrection prevention proven live; local merge unverified on device**                      |
 | 5   | Conflict resolution                              | **Done — resolution logic proven against the plan's own examples; local writes unverified on device** |
-| 6   | File upload, background execution                | **Built — attachment migrations blocked on manual apply; see §7**                                     |
-| 7   | Attachment pull, full test pass, submission       | **Done — 14/35 test cases live-verified, incl. both the plan calls out as proving Phase 3 worked; see docs/TEST-RESULTS-PHASE-3.md** |
+| 6   | File upload, background execution                | **Done — migrations applied to the live project; see §7**                                             |
+| 7   | Attachment pull, full test pass, submission       | **Done — 15/35 test cases live-verified, incl. all three the plan calls out as proving Phase 3 worked (TC-25, TC-29, TC-30); see docs/TEST-RESULTS-PHASE-3.md** |
 
 ## 1. Authentication (Day 1)
 
@@ -407,19 +407,14 @@ and this sandbox can't build or test regardless. Full reasoning in
 
 **What's live-verified versus what isn't, precisely:**
 
-- The two new SQL migrations are typecheck-clean SQL, traced by hand
-  against the same patterns Days 1-2's already-verified migrations use, but
-  **have not yet been applied to the live Supabase project** — this
-  sandbox has no `service_role` key and no linked Supabase CLI project (by
-  design; the same boundary D-018 already established for secrets). A
-  throwaway verification script confirmed the honest current state:
-  `sync_push('attachment', ...)` still returns the Day 2 placeholder
-  rejection, and the `attachments` bucket doesn't exist yet — exactly what
-  should be true before a human pastes both files into the Supabase
-  Dashboard's SQL Editor (or runs `supabase db push` from a linked CLI).
-  Once applied, the same script proves the row push, its idempotent replay,
-  the `remote_url` follow-up, and cross-user isolation on both the table
-  and the storage bucket.
+- The two new SQL migrations were applied to the live Supabase project by
+  the user (this sandbox has no `service_role` key and no linked Supabase
+  CLI project, by design — the same boundary D-018 already established for
+  secrets, so this step could only happen outside this tool). The same
+  throwaway verification script was re-run afterward and now proves, live:
+  the attachment row push, the `remote_url` follow-up push, and a second,
+  independently-signed-in client successfully pulling the completed row
+  back — see TC-30 in `docs/TEST-RESULTS-PHASE-3.md`.
 - `src/lib/attachmentUpload.ts`'s actual file-read-and-upload step needs a
   real device with a real photo file on it — unverifiable in this sandbox
   regardless of the migrations (D-010) — this is a genuinely new kind of

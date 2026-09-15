@@ -19,6 +19,11 @@ that prove Phase 3 worked."** Both pass, server-side, below. The parts of
 each that are genuinely client-only (the local SQLite write, the actual app
 UI) remain honestly marked, same as everywhere else in this document.
 
+**Update, same day:** the Day 6 attachment migrations were applied to the
+live project after this document was first written. The verification script
+was re-run against the live project and TC-30 (R6) now passes for real — see
+its row in 6.2.5 and the updated Summary below.
+
 ## 6.2.1 Auth
 
 | ID    | Steps                                             | Expected                                  | Result                | Notes                                                                                                                                                                                                          |
@@ -72,7 +77,7 @@ UI) remain honestly marked, same as everywhere else in this document.
 | TC-27 👥 | Both offline. Both edit the same field within seconds                | Conflict UI appears (R7)             | **Pass (logic), not yet run (UI)** | `resolveConflict`'s R7 branch was proven directly on Day 5 — including the exact bug this rule's test caught (D-022's boolean-logic slip). The actual Settings-screen UI showing the flagged conflict needs a real local `conflicts` row, which needs real SQLite (D-010).            |
 | TC-28 👥 | Resolve a conflict by choosing one version                           | Choice syncs; both devices agree     | **Not yet run** | `resolveConflictChoice` (Day 5) is typecheck/lint-clean and routes the choice through the entity's own normal update function — by inspection, correct — but needs a real conflict row on a real device to actually tap through.                                                       |
 | TC-29 👥 | A deletes, B edits older, both sync                                  | Stays deleted; no resurrection (R4)  | **Pass** | **The other of the two the plan calls out as proving Phase 3 worked.** A delete pushed, then a stale update (timestamped BEFORE the delete) pushed afterward — the row stayed deleted. This is the exact resurrection-prevention property Day 4 first proved for pull cursors (D-021), now confirmed at the push-ordering level too.                                                 |
-| TC-30 👥 | Both add photos offline to the same inspection                       | Both sets present (R6)               | **Blocked** | The Day 6/7 attachment migrations (`supabase/migrations/20260914000001...sql`, `...000002...sql`) haven't been applied to the live project yet — `sync_push('attachment', ...)` still returns Day 2's placeholder rejection. `docs/DESIGN.md` D-025 has the full design (pull now covers attachments; R6 holds structurally, not just by policy) — genuinely can't be demonstrated live until those migrations are applied. |
+| TC-30 👥 | Both add photos offline to the same inspection                       | Both sets present (R6)               | **Pass (server side)** | The Day 6/7 attachment migrations (`supabase/migrations/20260914000001...sql`, `...000002...sql`) are now applied to the live project. Re-run live: an attachment row pushed (`remote_url: null`), a follow-up push filled `remote_url`, and a second, independently-signed-in client successfully pulled the row back with `remote_url` set — proving both the Day 6 push path and the Day 7 pull addition end to end. R6 ("never conflict, keep both") holds structurally here, not just by policy (`docs/DESIGN.md` D-025): an attachment's id is generated once, client-side, so there is never a competing local outbox entry for a pulled id. The CLIENT half — a real device reading a real local file, uploading real bytes to Storage — still needs a physical device (D-010) and TC-31/32/33 below. |
 
 ## 6.2.6 Files 📱
 
@@ -93,17 +98,15 @@ UI) remain honestly marked, same as everywhere else in this document.
 
 ## Summary
 
-**14 of 35 test cases live-verified against the real Supabase project** in
-this pass (TC-01, 02, 06, 07, 08, 09, 11, 17, 20, 21, 22, 24, 25, 26, 29) —
-every one of them a genuine HTTP round-trip against real infrastructure, not
-a read of the code or an assumption. **The two the plan calls the ones that
-actually prove Phase 3 worked — TC-25 and TC-29 — both pass.**
+**15 of 35 test cases live-verified against the real Supabase project**
+(TC-01, 02, 06, 07, 08, 09, 11, 17, 20, 21, 22, 24, 25, 26, 29, 30) — every
+one of them a genuine HTTP round-trip against real infrastructure, not a
+read of the code or an assumption. **All three test cases the plan calls
+out by name as proving Phase 3 worked — TC-25, TC-29, and TC-30 — now
+pass.** TC-30 was re-run and moved from blocked to pass in the same session
+after the Day 6 migrations were applied to the live project.
 
-**1 blocked**, not failed: TC-30, on the two Day 6 SQL migrations not yet
-being applied to the live project (`docs/DESIGN.md` D-023/D-025 — this
-sandbox has no `service_role` key or linked Supabase CLI project, by
-design). Rerunning the same script after a human applies them would resolve
-this one directly.
+**0 blocked.** The only previously-blocked case (TC-30) is resolved.
 
 **20 not yet run**, every one for a specific, named, structural reason — not
 a vague "ran out of time":
@@ -113,9 +116,9 @@ a vague "ran out of time":
   different heading when a server-observable HALF of them could still be
   proven) — this sandbox has no Android/iOS device or emulator (D-010).
 - **A handful are genuinely two-real-phones cases** (TC-27's UI, TC-28,
-  TC-30, TC-31-33): even a single real device wouldn't be enough — the
-  plan's own 0.6.5 flags this as something to arrange "Monday, not Friday,"
-  and it was never arranged in this sandboxed environment at all.
+  TC-31-33): even a single real device wouldn't be enough — the plan's own
+  0.6.5 flags this as something to arrange "Monday, not Friday," and it was
+  never arranged in this sandboxed environment at all.
 - The rest are **client-side code that's typecheck/lint-clean and correct
   by inspection**, calling the exact server-side logic already proven live
   above, but genuinely unexercised because this project's web preview never
