@@ -141,13 +141,14 @@ export default function InspectionDetailScreen() {
     setInspection(updated);
   };
 
-  // Phase 4, Day 1: builds the report HTML (src/lib/report.ts +
-  // src/lib/reportHtml.ts), hands it to expo-print, and opens the result.
-  // Dynamic import — same reasoning as every other native-package call in
-  // this codebase (src/lib/media.ts, attachmentUpload.ts): a module that
-  // touches native code must not crash to *load* in the web preview, where
-  // it simply won't function (D-010). Sharing the resulting PDF is Day 2 —
-  // today's button only proves the file is real and correctly laid out.
+  // Phase 4: builds the report HTML (src/lib/report.ts + reportHtml.ts),
+  // hands it to expo-print to render a real PDF file, then hands THAT file
+  // to expo-sharing's native share sheet (Day 2 — Day 1 only opened the OS
+  // print dialog, which proved the PDF was real but wasn't yet "share this
+  // with someone"). Dynamic imports — same reasoning as every other
+  // native-package call in this codebase (src/lib/media.ts,
+  // attachmentUpload.ts): a module touching native code must not crash to
+  // *load* in the web preview, where it simply won't function (D-010).
   const handleGenerateReport = async () => {
     if (!inspection) return;
     setGeneratingReport(true);
@@ -156,7 +157,22 @@ export default function InspectionDetailScreen() {
       const html = await buildReportHtml(data);
       const Print = await import("expo-print");
       const { uri } = await Print.printToFileAsync({ html });
-      await Print.printAsync({ uri });
+
+      const Sharing = await import("expo-sharing");
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          dialogTitle: inspection.title,
+        });
+      } else {
+        // Sharing genuinely isn't available on this device/platform (not
+        // expected on a real phone, but this codebase never assumes a
+        // native capability exists without checking — same pattern as
+        // src/lib/media.ts's `{ error: "no-native" }` fallbacks) — the PDF
+        // still exists on disk, so say where rather than fail silently.
+        Alert.alert("Report generated", `Saved to: ${uri}`);
+      }
     } catch (e) {
       console.error(e);
       Alert.alert("Couldn't generate report", String(e));

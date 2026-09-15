@@ -1398,3 +1398,23 @@ The final return statement is one big HTML document string — `<html>`, a `<hea
 `listAttachmentsForInspection` used to read `db.select().from(attachments).where(eq(attachments.inspectionId, inspectionId))` — one condition, "belongs to this inspection." Now it reads `.where(and(eq(attachments.inspectionId, inspectionId), isNull(attachments.deletedAt)))` — two conditions joined by `and(...)`.
 
 `isNull(attachments.deletedAt)` means "this row's `deleted_at` column is empty" — since a soft-deleted row gets a real timestamp written into `deleted_at` (see `deleteAttachment` a little further down the same file), a row that's still `null` there hasn't been deleted. Without this second condition, a photo or signature the user had deleted would still come back in the list — it would just silently reappear anywhere this function's result gets shown, including in a printed PDF report. Every other `list`/`get` function in this codebase already had this same `isNull(...deletedAt)` check; this was the one place it had been left out.
+
+## Phase 4, Day 2 — sharing, and pulling real theme colors into the report
+
+### `src/app/inspections/[id].tsx` — sharing instead of just printing
+
+`const Sharing = await import("expo-sharing");` — same dynamic-import pattern already used for `expo-print` right above it, and for `expo-file-system` throughout this codebase: a module that touches native code shouldn't crash the whole screen just by being *imported* on a platform (web) where that native code doesn't exist.
+
+`await Sharing.isAvailableAsync()` — asks the OS "can you actually show a share sheet right now?" before trying. Returns a plain `true`/`false`, no permission dialog involved (sharing a file isn't a sensitive permission the way camera/location are).
+
+`await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: inspection.title })` — hands the just-created PDF file's path to the OS's native share UI (the same sheet a "Share" button in any app opens — Mail, Messages, Save to Files, etc.). `mimeType` tells the receiving apps what kind of file this is, so they know how to handle it. `dialogTitle` is just the heading text on the share sheet itself.
+
+The `if (canShare) { ... } else { Alert.alert(...) }` — an `if`/`else`: if sharing genuinely isn't available (this codebase never assumes a native feature just works), fall back to telling the user where the file ended up instead of the button silently doing nothing.
+
+### `src/lib/reportHtml.ts` — importing plain constants, not a React hook
+
+`import { palettes, fontSize, fontWeight } from "@/theme/tokens";` — a completely ordinary import, no different from importing a function. `tokens.ts` exports plain objects (`export const palettes = {...}`), not a React hook like `useTheme()` — a hook can only be called from inside a component during a render, and `reportHtml.ts` isn't a component at all, just a function that builds a string. Plain constants can be imported and read from anywhere.
+
+`const theme = palettes.light;` — picks out just the light-mode half of the two-palette object once, at the top of the file, and reuses it everywhere below. Written as `palettes.light` deliberately, not `palettes[currentScheme]` — a PDF report is a fixed document, not a live screen, so it always renders the same way regardless of whether the phone that opens it later is in dark mode.
+
+Inside the `STYLE` template string, spots that used to say a literal `#2b5fa8` now say `${theme.primary}` — a **template literal expression**: anything inside `${...}` is real JavaScript, evaluated once when the string is built, and its result (here, the string `"#2563EB"`) is spliced into the final CSS text. The browser/print-engine reading the finished HTML never sees `${theme.primary}` at all — only the real hex code it evaluated to.

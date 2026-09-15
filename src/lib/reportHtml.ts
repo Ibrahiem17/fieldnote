@@ -16,6 +16,14 @@
 import type { ReportData } from "./report";
 import { localUriToDataUrl, MAX_INLINE_IMAGES } from "./reportImages";
 import { formatTimestamp } from "./time";
+import { palettes, fontSize, fontWeight } from "@/theme/tokens";
+
+// A report is a document someone else receives — it always renders in one
+// fixed light-on-white style, never the viewing device's dark mode. That's
+// why this reaches for `palettes.light` specifically, not `useTheme()` (a
+// React hook this file, plain string templating with no React import at
+// all, has no business calling).
+const theme = palettes.light;
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
@@ -46,27 +54,32 @@ function esc(value: string | null | undefined): string {
     .replace(/"/g, "&quot;");
 }
 
+// Built as a function of the theme (rather than a plain string constant)
+// so every colour and size below is a real token reference, never a
+// standalone hex/pixel value re-typed by hand — the same discipline
+// tokens.ts's own header comment requires of every component in the app.
 const STYLE = `
   * { box-sizing: border-box; }
-  body { font-family: Helvetica, Arial, sans-serif; color: #1a1a1a; font-size: 12px; margin: 0; padding: 24px; }
-  h1 { font-size: 20px; margin: 0 0 4px 0; }
-  h2 { font-size: 15px; margin: 20px 0 8px 0; padding-bottom: 4px; border-bottom: 1px solid #ddd; page-break-inside: avoid; }
-  .muted { color: #666; }
-  .header { border-bottom: 2px solid #2b5fa8; padding-bottom: 12px; margin-bottom: 16px; }
+  body { font-family: Helvetica, Arial, sans-serif; color: ${theme.text}; font-size: ${fontSize.xs}px; margin: 0; padding: 24px; }
+  h1 { font-size: ${fontSize.lg}px; margin: 0; }
+  h2 { font-size: ${fontSize.md}px; margin: 20px 0 8px 0; padding-bottom: 4px; border-bottom: 1px solid ${theme.border}; page-break-inside: avoid; }
+  .muted { color: ${theme.textMuted}; }
+  .header { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 3px solid ${theme.primary}; padding-bottom: 12px; margin-bottom: 16px; }
+  .wordmark { font-size: ${fontSize.md}px; font-weight: ${fontWeight.bold}; color: ${theme.primary}; letter-spacing: 0.5px; }
   .meta-grid { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-bottom: 4px; }
   .meta-item { min-width: 200px; }
-  .meta-label { font-size: 10px; text-transform: uppercase; color: #888; }
-  .field-row { display: flex; padding: 4px 0; border-bottom: 1px solid #f0f0f0; page-break-inside: avoid; }
-  .field-label { width: 40%; color: #444; }
+  .meta-label { font-size: ${fontSize.xs - 2}px; text-transform: uppercase; color: ${theme.textMuted}; }
+  .field-row { display: flex; padding: 4px 0; border-bottom: 1px solid ${theme.border}; page-break-inside: avoid; }
+  .field-label { width: 40%; color: ${theme.text}; }
   .field-value { width: 60%; white-space: pre-wrap; }
-  .not-recorded { color: #999; font-style: italic; }
+  .not-recorded { color: ${theme.textMuted}; font-style: italic; }
   .photo-group { margin-bottom: 16px; page-break-inside: avoid; }
   .photo-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-  .photo-grid img { width: 160px; height: 160px; object-fit: cover; border: 1px solid #ddd; border-radius: 4px; }
+  .photo-grid img { width: 160px; height: 160px; object-fit: cover; border: 1px solid ${theme.border}; border-radius: 4px; }
   .signature-block { margin-top: 16px; page-break-inside: avoid; }
-  .signature-block img { max-width: 260px; border: 1px solid #ddd; }
-  .truncation-note { font-size: 10px; color: #b45309; margin-top: 6px; }
-  .footer { margin-top: 32px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 10px; color: #888; display: flex; justify-content: space-between; }
+  .signature-block img { max-width: 260px; border: 1px solid ${theme.border}; }
+  .truncation-note { font-size: ${fontSize.xs - 2}px; color: ${theme.warning}; margin-top: 6px; }
+  .footer { margin-top: 32px; padding-top: 8px; border-top: 1px solid ${theme.border}; font-size: ${fontSize.xs - 2}px; color: ${theme.textMuted}; display: flex; justify-content: space-between; }
   @page { margin: 24px; }
   .page-number:after { content: counter(page); }
 `;
@@ -165,8 +178,11 @@ export async function buildReportHtml(data: ReportData): Promise<string> {
 </head>
 <body>
   <div class="header">
-    <h1>${esc(inspection.title)}</h1>
-    <div class="muted">${esc(templateName)} &middot; v${templateVersion} &middot; ${STATUS_LABEL[inspection.status] ?? inspection.status}</div>
+    <div>
+      <h1>${esc(inspection.title)}</h1>
+      <div class="muted">${esc(templateName)} &middot; v${templateVersion} &middot; ${STATUS_LABEL[inspection.status] ?? inspection.status}</div>
+    </div>
+    <div class="wordmark">FieldNote</div>
   </div>
 
   <div class="meta-grid">
