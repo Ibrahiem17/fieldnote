@@ -1392,3 +1392,9 @@ The final return statement is one big HTML document string — `<html>`, a `<hea
 ### `src/app/inspections/[id].tsx` — the "Generate Report" button
 
 `handleGenerateReport` is an `async` function wired to a new `Button`. It calls `buildReportData`, then `buildReportHtml`, then dynamically imports `expo-print` (`await import("expo-print")` — the same pattern every other native-package call in this codebase uses, so this screen doesn't crash to even *load* on web, where the native module isn't available at all). `Print.printToFileAsync({ html })` renders the HTML string into an actual PDF file on disk and returns its `uri`; `Print.printAsync({ uri })` then opens the OS's own print/preview dialog on that file, which is enough to prove today that the PDF is real and laid out correctly — a proper "share this file" button is Day 2's job, not today's.
+
+## Phase 4, Day 1 audit — `src/repositories/attachments.ts`'s missing filter
+
+`listAttachmentsForInspection` used to read `db.select().from(attachments).where(eq(attachments.inspectionId, inspectionId))` — one condition, "belongs to this inspection." Now it reads `.where(and(eq(attachments.inspectionId, inspectionId), isNull(attachments.deletedAt)))` — two conditions joined by `and(...)`.
+
+`isNull(attachments.deletedAt)` means "this row's `deleted_at` column is empty" — since a soft-deleted row gets a real timestamp written into `deleted_at` (see `deleteAttachment` a little further down the same file), a row that's still `null` there hasn't been deleted. Without this second condition, a photo or signature the user had deleted would still come back in the list — it would just silently reappear anywhere this function's result gets shown, including in a printed PDF report. Every other `list`/`get` function in this codebase already had this same `isNull(...deletedAt)` check; this was the one place it had been left out.

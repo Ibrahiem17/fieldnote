@@ -5,7 +5,7 @@
 // layer (camera/compression) which writes a file and then calls this API to
 // record it in SQLite (so every file has a DB row and an outbox entry).
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { isDbAvailable, requireDb } from "@/db/client";
 import { attachments, type Attachment, type NewAttachment, type SyncStatus } from "@/db/schema";
 import { newId } from "@/lib/id";
@@ -16,7 +16,10 @@ import * as mock from "@/db/mockStore";
 export async function listAttachmentsForInspection(inspectionId: string): Promise<Attachment[]> {
   if (!isDbAvailable()) return mock.listAttachmentsForInspection(inspectionId);
   const db = requireDb();
-  return db.select().from(attachments).where(eq(attachments.inspectionId, inspectionId));
+  return db
+    .select()
+    .from(attachments)
+    .where(and(eq(attachments.inspectionId, inspectionId), isNull(attachments.deletedAt)));
 }
 
 export async function createAttachment(args: {
