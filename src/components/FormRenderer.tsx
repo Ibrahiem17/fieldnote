@@ -194,7 +194,12 @@ const FieldComponent = React.memo(function FieldComponent(props: {
           {(attachmentsForField ?? []).map((a) => (
             <View key={a.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <Text>
-                {a.localUri}
+                {/* Day 7: a.localUri is null for an attachment PULLED from
+                    another device — there's no file on this filesystem to
+                    show a path for (src/db/schema.ts's D-025), so fall back
+                    to naming the synced remote object instead of showing
+                    nothing at all. */}
+                {a.localUri ?? (a.remoteUrl ? `(synced from another device: ${a.remoteUrl})` : "(uploading…)")}
                 {(a as any).thumbLocalUri ? ` (thumb: ${(a as any).thumbLocalUri})` : ""}
               </Text>
               <Button
@@ -296,7 +301,9 @@ const FieldComponent = React.memo(function FieldComponent(props: {
           />
           {(attachmentsForField ?? []).map((a) => (
             <View key={a.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text>{a.localUri}</Text>
+              <Text>
+                {a.localUri ?? (a.remoteUrl ? `(synced from another device: ${a.remoteUrl})` : "(uploading…)")}
+              </Text>
               <Button
                 label="Delete"
                 variant="danger"

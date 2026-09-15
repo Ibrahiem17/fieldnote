@@ -32,6 +32,11 @@ import {
   applyPulledAnswer,
   applyServerFieldMerge as mergeAnswerFields,
 } from "@/repositories/answers";
+import {
+  getAttachmentById,
+  applyPulledAttachment,
+  applyServerFieldMerge as mergeAttachmentFields,
+} from "@/repositories/attachments";
 import { recordConflict, deleteConflictsForEntity } from "@/repositories/conflicts";
 import { resolveConflict } from "./conflict";
 import type { InspectionStatus, OutboxEntry } from "@/db/schema";
@@ -69,7 +74,7 @@ type EntityHandlers<Row> = {
 };
 
 async function pullTable<Row extends { id: string; server_updated_at: string }>(
-  table: "projects" | "inspections" | "answers",
+  table: "projects" | "inspections" | "answers" | "attachments",
   cursor: string,
   handlers: EntityHandlers<Row>,
 ): Promise<{
@@ -292,6 +297,22 @@ const inspectionHandlers: EntityHandlers<InspectionRow> = {
   applyFieldMerge: mergeInspectionFields,
 };
 
+type AttachmentRow = {
+  id: string;
+  created_at: number;
+  updated_at: number;
+  deleted_at: number | null;
+  server_updated_at: string;
+  inspection_id: string;
+  field_key: string;
+  local_uri: string | null;
+  remote_url: string | null;
+  mime_type: string | null;
+  byte_size: number | null;
+  width: number | null;
+  height: number | null;
+};
+
 const answerHandlers: EntityHandlers<AnswerRow> = {
   entityType: "answer",
   ignoreFields: [...COMMON_IGNORE_FIELDS, "inspectionId", "fieldKey"],
@@ -309,6 +330,45 @@ const answerHandlers: EntityHandlers<AnswerRow> = {
   getLocalRow: (id) => getAnswerById(id) as Promise<Record<string, unknown> | null>,
   applyFullRow: (fields) => applyPulledAnswer(fields as Parameters<typeof applyPulledAnswer>[0]),
   applyFieldMerge: mergeAnswerFields,
+};
+
+// Day 7 — plan Section 5.1's R6 ("Attachments — never conflict, unique
+// IDs, keep both"). See src/repositories/attachments.ts#applyPulledAttachment
+// for why this handler's `applyFieldMerge` branch is realistically dead
+// code: an attachment id is generated once, on the device that captured
+// it, so a pending LOCAL outbox entry for that same id can only ever exist
+// on that SAME device — by the time any device pulls a given attachment
+// row, the device that created it has already pushed it successfully and
+// its own outbox entry is already gone. Every pull of an attachment is
+// structurally the plain-upsert case, which is exactly what "never
+// conflict, keep both" means in practice, not just by convention.
+const attachmentHandlers: EntityHandlers<AttachmentRow> = {
+  entityType: "attachment",
+  ignoreFields: [...COMMON_IGNORE_FIELDS, "inspectionId", "fieldKey"],
+  toLocalFields: (row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    inspectionId: row.inspection_id,
+    fieldKey: row.field_key,
+    // Deliberately NO `localUri` here — a pulled row's `local_uri` is
+    // another device's own filesystem path, meaningless (and actively
+    // wrong) to store as if it described a file on THIS device.
+    // `src/repositories/attachments.ts#applyPulledAttachment` decides the
+    // right local_uri to store on its own (null for a genuinely new row,
+    // untouched for one this device already knows about) — see its comment
+    // and `src/db/schema.ts`'s D-025 for the full reasoning.
+    remoteUrl: row.remote_url,
+    mimeType: row.mime_type,
+    byteSize: row.byte_size,
+    width: row.width,
+    height: row.height,
+  }),
+  getLocalRow: (id) => getAttachmentById(id) as Promise<Record<string, unknown> | null>,
+  applyFullRow: (fields) =>
+    applyPulledAttachment(fields as Parameters<typeof applyPulledAttachment>[0]),
+  applyFieldMerge: mergeAttachmentFields,
 };
 
 /**
@@ -340,8 +400,15 @@ export async function pullChanges(): Promise<PullResult> {
     inspectionHandlers,
   );
   const answersResult = await pullTable<AnswerRow>("answers", cursor, answerHandlers);
+  // Attachments reference an inspection too (`inspection_id`) — same
+  // parents-before-children reasoning, pulled after inspections.
+  const attachmentsResult = await pullTable<AttachmentRow>(
+    "attachments",
+    cursor,
+    attachmentHandlers,
+  );
 
-  for (const r of [projectsResult, inspectionsResult, answersResult]) {
+  for (const r of [projectsResult, inspectionsResult, answersResult, attachmentsResult]) {
     result.pulled += r.pulled;
     result.merged += r.merged;
     result.autoResolved += r.autoResolved;

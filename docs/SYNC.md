@@ -13,8 +13,8 @@ below claims more than what's actually been written and verified.
 | 3   | Retry, backoff, connectivity triggers, status UI | **Done — formula and classification proven live; triggers unverified on device**                      |
 | 4   | Pull, cursors, tombstones                        | **Done — resurrection prevention proven live; local merge unverified on device**                      |
 | 5   | Conflict resolution                              | **Done — resolution logic proven against the plan's own examples; local writes unverified on device** |
-| 6   | File upload, background execution                | **Built — blocked on migrations not yet applied to the live project; see §7**                          |
-| 7   | Test cases, final review                         | Not yet built                                                                                         |
+| 6   | File upload, background execution                | **Built — attachment migrations blocked on manual apply; see §7**                                     |
+| 7   | Attachment pull, full test pass, submission       | **Done — 14/35 test cases live-verified, incl. both the plan calls out as proving Phase 3 worked; see docs/TEST-RESULTS-PHASE-3.md** |
 
 ## 1. Authentication (Day 1)
 
@@ -431,3 +431,63 @@ and this sandbox can't build or test regardless. Full reasoning in
   executed once, anywhere, as of this commit — background fetch
   fundamentally requires a signed dev-build install on physical hardware,
   not Expo Go and not a web preview.
+
+## 8. Attachments were also missing from PULL (Day 7)
+
+Day 6 made attachments push-able; nothing pulled them back down until this
+was caught while checking the plan's own R6 rule ("attachments never
+conflict — unique IDs, keep both") against the actual pull code before
+starting the Day 7 test pass. `src/lib/syncPull.ts#pullChanges` now pulls
+`attachments` too, through the exact same generic `pullTable`/
+`EntityHandlers` machinery the other three entities already use — no new
+pull mechanism, just a fourth handler. Full design reasoning, including why
+R6 holds *structurally* (an attachment's id can never collide with a
+pending local edit on a different device) and why `local_uri` had to become
+a nullable column (a pulled row's local file path belongs to some OTHER
+device's filesystem, never this one's) is in `docs/DESIGN.md` D-025.
+
+## 9. What Section 5.3 of the plan asks you to be able to say in an interview
+
+**Why row-level Last-Writer-Wins is inadequate here.** A single "newest
+edit wins" rule at the ROW level would let an unrelated field one person
+never touched get silently overwritten by someone else's edit to a
+completely different field, just because their write happened to land
+later. This app's actual policy (R1-R7, §7 above and Section 5 of the plan)
+operates at the FIELD level specifically to avoid that — two people editing
+different parts of the same report never even look like a conflict to each
+other, which is the common case, not the exception (worked Example 1).
+
+**Why device clocks can't be trusted.** Two phones can simply disagree
+about what time it is — a wrong clock, a timezone bug, someone changing it
+on purpose. `server_updated_at` (a Postgres trigger's own clock, D-017) is
+the only timestamp this app ever compares to decide who wins; a device's
+own `updated_at` is fine for local sorting/display and never anything else.
+This was deliberate from Day 1, re-affirmed one level deeper at Day 5
+(D-022): even an *unsynced* pending local edit's own device-clock timestamp
+is never compared against the server's — only used as a coarse "is this
+worth asking a person about" proximity check (the 60-second R7 window), not
+as the actual decision.
+
+**What happens when a delete races an edit.** An incoming tombstone always
+beats a pending local edit, unconditionally — not clock-compared, for the
+same reason above: there's no trustworthy way to call a not-yet-confirmed
+local edit "newer" than an already-server-confirmed delete. Proven twice at
+two different levels: Day 4's pull-cursor resurrection-prevention test
+(D-021) and this session's TC-22/TC-29 push-ordering test
+(`docs/TEST-RESULTS-PHASE-3.md`) — a stale update pushed AFTER a delete
+does not resurrect the row.
+
+**Why exactly-once delivery is impossible, and what was built instead.**
+A request can always be sent, then have its RESPONSE lost to a network
+blip — from the client's point of view that's indistinguishable from the
+request itself never arriving, so it retries. There is no way to make that
+retry impossible without also risking silently dropping a real change on a
+false negative — the worse mistake (`src/lib/syncApi.ts#isRetryable`'s own
+comment makes this trade-off explicit). What's actually achievable, and
+what's built: **at-least-once delivery** (the client keeps retrying until
+it gets a real, confirmed success) **plus idempotency** (the outbox row's
+own id, reused as the request's idempotency key, lets the server recognize
+and safely no-op a repeat) — together, the *effect* is exactly-once, even
+though the delivery mechanism underneath is not. `sync_idempotency_keys`
+(D-019) and TC-09's live-verified duplicate-request test are the two
+concrete pieces that make this true, not just claimed.

@@ -150,7 +150,14 @@ export const attachments = sqliteTable(
     fieldKey: text("field_key").notNull(),
     // A file path on the device, never the image bytes themselves — storing
     // base64 blobs in SQLite wrecks both performance and memory (Section 4.2.5).
-    localUri: text("local_uri").notNull(),
+    // Nullable since Day 6 (D-025): a row PULLED from another device's own
+    // upload has no file on THIS device's filesystem at all — only that
+    // other device's local_uri, which would be actively wrong to store here
+    // (a path on a filesystem this device doesn't have). Every attachment
+    // THIS device creates still always supplies a real one
+    // (`createAttachment`'s own args keep it required) — only a pulled row
+    // is ever null.
+    localUri: text("local_uri"),
     remoteUrl: text("remote_url"),
     mimeType: text("mime_type"),
     byteSize: integer("byte_size", { mode: "number" }),

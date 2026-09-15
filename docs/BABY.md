@@ -1331,3 +1331,22 @@ useEffect(() => {
 ```
 
 Every other conditional import in this app so far (`src/lib/media.ts`) is `await import(...)` used because the awaited call itself might fail on an unsupported platform. This one is different, and worth noticing why: `src/lib/backgroundSync.ts` runs `TaskManager.defineTask(...)` the moment it's loaded — not when some function inside it is called. A **static** `import backgroundSync from "@/lib/backgroundSync"` at the top of `_layout.tsx` would load (and therefore run) that file's top-level code on EVERY platform this app renders on, web included, the instant `_layout.tsx` itself loads — before the `Platform.OS === "web"` check below ever gets a chance to run. Writing `import("@/lib/backgroundSync")` as a function call, inside the `if` that already excludes web, means the whole module — and its risky top-level `defineTask` call — is never even fetched, let alone executed, on a platform this project doesn't trust it to behave correctly on (see `docs/DESIGN.md` D-024, and D-018's `expo-secure-store` story for why that distrust is earned, not paranoid).
+
+## Phase 3, Day 7 — pulling attachments down, and the one column that must NOT just get overwritten
+
+### `src/repositories/attachments.ts#applyPulledAttachment` — excluding one column from an upsert on purpose
+
+```ts
+const insertValues: NewAttachment = { ...row, localUri: null, syncStatus: "synced" };
+const { localUri: _localUriExcluded, ...updateOnConflict } = insertValues;
+await db
+  .insert(attachments)
+  .values(insertValues)
+  .onConflictDoUpdate({ target: attachments.id, set: updateOnConflict });
+```
+
+`const { localUri: _localUriExcluded, ...updateOnConflict } = insertValues;` is **object destructuring with a rest pattern**, used here for what it REMOVES rather than what it keeps: `localUri` is pulled out into its own (unused, underscore-prefixed by convention) variable, and `updateOnConflict` becomes a new object with every OTHER key from `insertValues`. `.values(insertValues)` — the full object, `localUri: null` included — is what SQLite writes if this row doesn't exist yet: a genuinely new attachment, correctly recorded as having no local file. `.onConflictDoUpdate({ set: updateOnConflict })` — the object with `localUri` missing — is what runs INSTEAD if a row with this `id` already exists: SQL's `ON CONFLICT DO UPDATE SET col1 = x, col2 = y, ...` only touches the columns actually named in the `SET` list, so leaving `localUri` out of it means an existing row's own `local_uri` survives completely untouched, whatever it already was. This is the one place in the whole sync system that needed an upsert to intentionally NOT copy one particular column from the server — every other `applyPulledX` function (Days 4-6) copies every field, because every other column genuinely does have one shared, correct value the server holds. `local_uri` doesn't; it names a path on whichever ONE device happens to have the actual file, and pull code that doesn't know that would happily overwrite a device's own correct value with someone else's meaningless one.
+
+### `src/lib/syncPull.ts` — reusing `pullTable` for a fourth entity, unmodified
+
+Adding attachments to `pullChanges()` needed zero changes to `pullTable` itself — only a fourth `AttachmentRow` type and a fourth `EntityHandlers` object (`attachmentHandlers`), passed to the exact same generic function already pulling the other three. This is the payoff of `pullTable` being written generically (`<Row extends { id: string; server_updated_at: string }>`, `EntityHandlers<Row>`) back on Day 4, rather than as four copy-pasted functions: a new entity type with a genuinely different conflict story (attachments structurally never conflict at all — see `docs/DESIGN.md` D-025) still fits through the same shape, because the "does this row have a pending local edit?" check `pullTable` already does naturally comes back empty for every attachment, every time — nothing about `pullTable` needed to know that in advance for it to already be true.
