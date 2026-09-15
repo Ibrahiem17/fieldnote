@@ -35,7 +35,8 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-task-manager",
-      "expo-background-fetch"
+      "expo-background-fetch",
+      "expo-sharing"
     ]
   }
 }

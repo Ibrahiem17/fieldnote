@@ -17,6 +17,8 @@ import { getAnswers } from "@/repositories/answers";
 import { buildValidator } from "@/lib/validation";
 import { getProject } from "@/repositories/projects";
 import { formatTimestamp } from "@/lib/time";
+import { buildReportData } from "@/lib/report";
+import { buildReportHtml } from "@/lib/reportHtml";
 import {
   INSPECTION_STATUSES,
   type Inspection,
@@ -44,6 +46,7 @@ export default function InspectionDetailScreen() {
   const [titleError, setTitleError] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +139,30 @@ export default function InspectionDetailScreen() {
 
     const updated = await updateInspection(inspection.id, { status });
     setInspection(updated);
+  };
+
+  // Phase 4, Day 1: builds the report HTML (src/lib/report.ts +
+  // src/lib/reportHtml.ts), hands it to expo-print, and opens the result.
+  // Dynamic import — same reasoning as every other native-package call in
+  // this codebase (src/lib/media.ts, attachmentUpload.ts): a module that
+  // touches native code must not crash to *load* in the web preview, where
+  // it simply won't function (D-010). Sharing the resulting PDF is Day 2 —
+  // today's button only proves the file is real and correctly laid out.
+  const handleGenerateReport = async () => {
+    if (!inspection) return;
+    setGeneratingReport(true);
+    try {
+      const data = await buildReportData(inspection.id);
+      const html = await buildReportHtml(data);
+      const Print = await import("expo-print");
+      const { uri } = await Print.printToFileAsync({ html });
+      await Print.printAsync({ uri });
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Couldn't generate report", String(e));
+    } finally {
+      setGeneratingReport(false);
+    }
   };
 
   const handleDelete = () => {
@@ -236,6 +263,11 @@ export default function InspectionDetailScreen() {
         ) : null}
 
         <Button label="Save Changes" onPress={handleSave} loading={saving} disabled={!dirty} />
+        <Button
+          label="Generate Report"
+          onPress={handleGenerateReport}
+          loading={generatingReport}
+        />
         <Button label="Delete Inspection" variant="danger" onPress={handleDelete} />
       </ScrollView>
     </Screen>

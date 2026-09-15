@@ -1350,3 +1350,45 @@ await db
 ### `src/lib/syncPull.ts` — reusing `pullTable` for a fourth entity, unmodified
 
 Adding attachments to `pullChanges()` needed zero changes to `pullTable` itself — only a fourth `AttachmentRow` type and a fourth `EntityHandlers` object (`attachmentHandlers`), passed to the exact same generic function already pulling the other three. This is the payoff of `pullTable` being written generically (`<Row extends { id: string; server_updated_at: string }>`, `EntityHandlers<Row>`) back on Day 4, rather than as four copy-pasted functions: a new entity type with a genuinely different conflict story (attachments structurally never conflict at all — see `docs/DESIGN.md` D-025) still fits through the same shape, because the "does this row have a pending local edit?" check `pullTable` already does naturally comes back empty for every attachment, every time — nothing about `pullTable` needed to know that in advance for it to already be true.
+
+## Phase 4, Day 1 — `src/lib/report.ts`, `src/lib/reportImages.ts`, `src/lib/reportHtml.ts`
+
+### `src/lib/report.ts` — gathering the data, before any HTML exists
+
+`buildReportData(inspectionId)` is an `async function` that returns a `Promise<ReportData>` — it does several database reads in sequence, each one `await`ed, and hands back one plain JavaScript object with everything a report needs already resolved. Nothing in this file imports React or writes HTML — it only answers "what does this inspection's report say?", so the trickier layout work in `reportHtml.ts` never has to also worry about where the data comes from.
+
+`isFieldVisible(field, answers)` is copied, line for line, from the same function already in `FormRenderer.tsx`. `field.visibleIf` is an object like `{ field: "roof_condition", in: ["fair", "poor"] }` — "only show this field if `roof_condition`'s answer is one of these values." `answers[field.visibleIf.field]` looks up that other field's current answer; `.in?.includes(...)` checks whether it's in the allowed list. The `?.` ("optional chaining") means: if `visibleIf.in` doesn't exist, don't crash — just treat it as "not included." This has to match `FormRenderer.tsx` exactly, or the report could show a field the user never actually saw on screen.
+
+`formatValue(field, value)` is a `switch (field.type)` — for each field type, it decides how the raw stored value becomes readable text. The `select` case does something `FormRenderer.tsx` never had to: `field.options?.find((o) => o.value === value)?.label` — `options` is an array like `[{ value: "fair", label: "Fair" }, ...]`; `.find(...)` walks the array looking for the one whose `value` matches what's stored, then `?.label` reads its human-readable label off it. If nothing matches (or `options` doesn't exist), `?? String(value)` falls back to just showing the raw stored value instead of crashing.
+
+`NOT_RECORDED` is a `const` holding the literal string `"Not recorded"` — used any time a field has no answer at all. The Phase 4 plan is explicit that a report should never show a blank for an unanswered field, because a blank reads as "the report is broken," not "the inspector chose not to answer this."
+
+`buildAnswersMap(answers)` turns the list of raw `Answer` database rows into a `{ fieldKey: value }` lookup object — the exact same three-column decode (`valueText`, then `valueNumber`, then `JSON.parse(valueJson)`) `FormRenderer.tsx` already does inline, pulled out into its own function here since this file needs it too.
+
+Inside `buildReportData`, photos and signatures are handled differently from every other field type: instead of reading their "value" from the `answers` table, the function looks them up from the separate `attachments` list, grouped by `fieldKey` using a `Map` (`attachmentsByField`). A `Map` here works like a dictionary that maps one field's key to an array of every attachment captured for it — built once with a `for` loop, then read back per field.
+
+### `src/lib/reportImages.ts` — turning a photo file into text a web page can embed
+
+`BASE64_CHARS` is the fixed 64-character alphabet every base64 encoder in the world uses — the same idea as Morse code: a fixed, agreed-upon way to turn one kind of data (raw bytes) into another (plain text) that's safe to embed inside a text file like HTML.
+
+`bytesToBase64(bytes)` is the encoder itself. It reads a photo's raw bytes three at a time (`for (let i = 0; i < bytes.length; i += 3)`) and turns each group of 3 bytes (24 bits) into 4 base64 characters (4 × 6 bits = 24 bits) — the bit-shifting (`>> 2`, `<< 4`, `& 0x03`, etc.) is just slicing those 24 bits into four 6-bit chunks and looking each one up in `BASE64_CHARS`. The `=` padding at the end handles the case where the very last group has only 1 or 2 bytes left over, not a full 3.
+
+`localUriToDataUrl(localUri, mimeType)` ties it together: opens the file with `expo-file-system`'s `File` class (the exact same class `src/lib/media.ts` and `attachmentUpload.ts` already use), checks `.exists` first (never assume a file is still there), reads its bytes with `.bytes()`, and returns a string like `data:image/jpeg;base64,/9j/4AAQ...` — a `data:` URI is a way of putting a whole file's contents directly inside a URL instead of pointing at one; an `<img src="...">` given one of these shows the image with no separate file request at all, which matters here since `expo-print`'s renderer can't go fetch a `file://` path itself. If anything goes wrong reading the file, the function returns `null` instead of throwing — one missing photo shouldn't take down the whole report.
+
+`MAX_INLINE_IMAGES` is a plain `const = 20` — the hard cap on how many photos (plus the signature) get embedded in one report, so a 200-photo inspection can't exhaust the phone's memory generating one PDF.
+
+### `src/lib/reportHtml.ts` — assembling one HTML string
+
+`buildReportHtml(data)` is a template-string builder: it takes the `ReportData` object and stitches together one big HTML string, using JavaScript's backtick template literals (`` `...${expression}...` ``) to drop in real values wherever the report needs them.
+
+`esc(value)` ("escape") replaces the characters `&`, `<`, `>`, and `"` with their safe HTML equivalents (`&amp;`, `&lt;`, etc.) before any real, user-typed text (a project name, an inspector's name) goes into the HTML string. Without this, someone whose name happened to contain a `<` character could accidentally break the page's structure — this file builds HTML by hand, unlike a React component, so nothing else here would catch that automatically.
+
+`STYLE` is one long CSS string, kept as a single `<style>` block in the page's `<head>` — the plan requires this (no separate stylesheet file, since `expo-print`'s renderer can't fetch one). `page-break-inside: avoid` on a rule tells the printing engine "never split this element across two pages" — used on every section and photo block so a heading doesn't end up alone at the bottom of one page with its content starting on the next.
+
+The function does its image work with `Promise.all(...)` — `photoRefsToInline.map(ref => localUriToDataUrl(...))` creates one Promise per photo, and `Promise.all` waits for every one of them to finish before continuing, instead of reading each photo file one at a time. `.flatMap(...)` (used to build `allPhotoRefs`) is like `.map()` but flattens one extra level of nesting — each photo *group* becomes several individual photo *entries* in one flat list.
+
+The final return statement is one big HTML document string — `<html>`, a `<head>` with the inline `<style>`, and a `<body>` built from several smaller template strings (`sectionsHtml`, `photosHtml`, `locationHtml`, `signatureHtml`) that each only get included if they have something to show (`data.gps ? ... : ""`), so an inspection with no photos simply doesn't get an empty "Photos" heading.
+
+### `src/app/inspections/[id].tsx` — the "Generate Report" button
+
+`handleGenerateReport` is an `async` function wired to a new `Button`. It calls `buildReportData`, then `buildReportHtml`, then dynamically imports `expo-print` (`await import("expo-print")` — the same pattern every other native-package call in this codebase uses, so this screen doesn't crash to even *load* on web, where the native module isn't available at all). `Print.printToFileAsync({ html })` renders the HTML string into an actual PDF file on disk and returns its `uri`; `Print.printAsync({ uri })` then opens the OS's own print/preview dialog on that file, which is enough to prove today that the PDF is real and laid out correctly — a proper "share this file" button is Day 2's job, not today's.
