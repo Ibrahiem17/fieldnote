@@ -13,7 +13,7 @@ below claims more than what's actually been written and verified.
 | 3   | Retry, backoff, connectivity triggers, status UI | **Done — formula and classification proven live; triggers unverified on device**                      |
 | 4   | Pull, cursors, tombstones                        | **Done — resurrection prevention proven live; local merge unverified on device**                      |
 | 5   | Conflict resolution                              | **Done — resolution logic proven against the plan's own examples; local writes unverified on device** |
-| 6   | File upload, background execution                | Not yet built                                                                                         |
+| 6   | File upload, background execution                | **Built — blocked on migrations not yet applied to the live project; see §7**                          |
 | 7   | Test cases, final review                         | Not yet built                                                                                         |
 
 ## 1. Authentication (Day 1)
@@ -362,3 +362,72 @@ the same pull. `failed` (dead-lettered) only ever moves again through the
 deliberate, manual "Retry Failed" action (`src/lib/syncEngine.ts#retryDeadLetters`)
 — never on its own, since a dead letter existing at all means something needs a human's
 attention, not another silent automatic attempt.
+
+## 7. File upload and background execution (Day 6)
+
+**File upload (`src/lib/attachmentUpload.ts`):** an attachment insert is
+special-cased in `src/lib/syncEngine.ts#pushOne` to
+`pushAndUploadAttachment` instead of the plain row push every other entity
+gets. It's three steps run in sequence and treated as one all-or-nothing
+attempt:
+
+1. Push the row via `sync_push`'s new `attachment` branch
+   (`supabase/migrations/20260914000001_sync_push_attachments.sql`), with
+   `remote_url = null` — true at this point, the file hasn't gone up yet.
+2. Read the local file's real bytes (`expo-file-system`'s `File.bytes()`)
+   and upload them to a private Supabase Storage bucket, at
+   `{owner_id}/{attachmentId}{ext}` (`supabase/migrations/20260914000002_attachment_storage.sql`).
+3. Push a second, small `sync_push` update, filling in `remote_url` with
+   that path for real.
+
+The outbox entry is only deleted once all three steps succeed
+(`src/lib/syncEngine.ts#pushOne`'s existing "only delete on `ok:true`"
+rule, unchanged from Day 2) — so killing the app or losing connectivity
+between any two steps leaves the entry exactly where it was, and the next
+drain redoes the whole sequence. That's safe because every step is
+independently idempotent (row insert: `on conflict do nothing`; upload:
+`upsert: true`; the follow-up update: setting the same value twice is a
+no-op) — full reasoning and the one honest loose end (a retried follow-up
+leaves more than one idempotency-key row behind) in `docs/DESIGN.md` D-023.
+
+An attachment **delete** carries no file, so it's untouched by any of
+this — it goes through the same plain row push every other entity's delete
+already uses.
+
+**Background execution (`src/lib/backgroundSync.ts`):** `runSync()`
+registered as a periodic `expo-task-manager` / `expo-background-fetch`
+task, requested at a 15-minute floor the OS is free to ignore or space out
+further. Registered once a session exists, native platforms only, via a
+genuinely dynamic `import()` so the module (and `expo-task-manager`'s
+module-load-time `defineTask` call) never loads on web at all. Deliberately
+does NOT attempt a real background `URLSession` (iOS) or foreground service
+(Android) — both need a bare/custom-native workflow this project isn't in
+and this sandbox can't build or test regardless. Full reasoning in
+`docs/DESIGN.md` D-024.
+
+**What's live-verified versus what isn't, precisely:**
+
+- The two new SQL migrations are typecheck-clean SQL, traced by hand
+  against the same patterns Days 1-2's already-verified migrations use, but
+  **have not yet been applied to the live Supabase project** — this
+  sandbox has no `service_role` key and no linked Supabase CLI project (by
+  design; the same boundary D-018 already established for secrets). A
+  throwaway verification script confirmed the honest current state:
+  `sync_push('attachment', ...)` still returns the Day 2 placeholder
+  rejection, and the `attachments` bucket doesn't exist yet — exactly what
+  should be true before a human pastes both files into the Supabase
+  Dashboard's SQL Editor (or runs `supabase db push` from a linked CLI).
+  Once applied, the same script proves the row push, its idempotent replay,
+  the `remote_url` follow-up, and cross-user isolation on both the table
+  and the storage bucket.
+- `src/lib/attachmentUpload.ts`'s actual file-read-and-upload step needs a
+  real device with a real photo file on it — unverifiable in this sandbox
+  regardless of the migrations (D-010) — this is a genuinely new kind of
+  gap, not a repeat of earlier days': Days 1-5 only ever needed to prove
+  *server* behavior against a real backend, which a Node script can do from
+  anywhere; Day 6 additionally needs a real device's filesystem, which
+  nothing running in this sandbox has.
+- `src/lib/backgroundSync.ts`'s registration and scheduling has not
+  executed once, anywhere, as of this commit — background fetch
+  fundamentally requires a signed dev-build install on physical hardware,
+  not Expo Go and not a web preview.

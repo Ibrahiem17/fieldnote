@@ -7,7 +7,7 @@
 
 import { eq } from "drizzle-orm";
 import { isDbAvailable, requireDb } from "@/db/client";
-import { attachments, type Attachment, type NewAttachment } from "@/db/schema";
+import { attachments, type Attachment, type NewAttachment, type SyncStatus } from "@/db/schema";
 import { newId } from "@/lib/id";
 import { now } from "@/lib/time";
 import { appendOutboxEntry } from "./outbox";
@@ -57,6 +57,33 @@ export async function createAttachment(args: {
   });
 
   return row as Attachment;
+}
+
+/**
+ * Day 6, sync-engine only (src/lib/attachmentUpload.ts) — same shape and
+ * same reasoning as `setProjectSyncStatus`: no transaction, no outbox
+ * write. Reports how the push-and-upload attempt is going; doesn't
+ * represent a new thing the user did.
+ */
+export async function setAttachmentSyncStatus(id: string, status: SyncStatus): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  await db.update(attachments).set({ syncStatus: status }).where(eq(attachments.id, id));
+}
+
+/**
+ * Day 6, sync-engine only — mirrors the storage object path this device's
+ * OWN upload just wrote onto the local row, the moment the whole
+ * push-and-upload sequence (src/lib/attachmentUpload.ts) succeeds. Not
+ * strictly required for correctness (the server already has it, and a
+ * later pull would bring it down too) but means this device doesn't have
+ * to wait for a round-trip pull to know its own upload actually landed.
+ * No transaction, no outbox entry — same reasoning as `setAttachmentSyncStatus`.
+ */
+export async function setAttachmentRemoteUrl(id: string, remoteUrl: string): Promise<void> {
+  if (!isDbAvailable()) return;
+  const db = requireDb();
+  await db.update(attachments).set({ remoteUrl }).where(eq(attachments.id, id));
 }
 
 export async function deleteAttachment(id: string): Promise<void> {

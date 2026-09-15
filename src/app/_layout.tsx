@@ -18,7 +18,7 @@
 // free to call whichever hooks make sense for its own case.
 
 import { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
@@ -62,6 +62,28 @@ function AuthGate() {
   useEffect(() => {
     if (!session) return;
     return startAutoSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: keyed on presence, not identity
+  }, [Boolean(session)]);
+
+  // Background sync registration (plan Section 3.6.3, docs/DESIGN.md
+  // D-024) — native only, and a genuinely DYNAMIC import, not a static one:
+  // src/lib/backgroundSync.ts calls expo-task-manager's `defineTask` at
+  // module-load time, and this project doesn't assume that's safe to even
+  // LOAD on web just because it usually degrades gracefully (D-018 was the
+  // opposite lesson, for a different native module). Skipping the import
+  // entirely on web is what actually guarantees that code never runs there
+  // — not a runtime Platform check inside a statically-imported module.
+  useEffect(() => {
+    if (!session || Platform.OS === "web") return;
+    let cancelled = false;
+    import("@/lib/backgroundSync")
+      .then((m) => {
+        if (!cancelled) return m.registerBackgroundSync();
+      })
+      .catch((e) => console.error("[backgroundSync] registration failed", e));
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: keyed on presence, not identity
   }, [Boolean(session)]);
 

@@ -13,6 +13,36 @@ export type PushResult =
   { ok: true; duplicate: boolean } | { ok: false; retryable: boolean; error: string };
 
 /**
+ * Day 6: the raw RPC call, pulled out of `pushOutboxEntry` below so
+ * `src/lib/attachmentUpload.ts` can call `sync_push` a SECOND time for the
+ * same outbox entry — the "the file landed, here's remote_url" follow-up
+ * push — without needing a fake `OutboxEntry` to hand `pushOutboxEntry`.
+ * Both callers still go through this one function, so there is still only
+ * one place in the app that calls `supabase.rpc("sync_push", ...)`.
+ */
+export async function pushRowOnly(
+  idempotencyKey: string,
+  entityType: OutboxEntry["entityType"],
+  entityId: string,
+  operation: OutboxEntry["operation"],
+  payload: unknown,
+): Promise<PushResult> {
+  const { data, error } = await supabase.rpc("sync_push", {
+    p_idempotency_key: idempotencyKey,
+    p_entity_type: entityType,
+    p_entity_id: entityId,
+    p_operation: operation,
+    p_payload: payload,
+  });
+
+  if (error) {
+    return { ok: false, retryable: isRetryable(error), error: error.message };
+  }
+
+  return { ok: true, duplicate: Boolean((data as { duplicate?: boolean } | null)?.duplicate) };
+}
+
+/**
  * Pushes one outbox row. The outbox row's own `id` — already a
  * device-generated UUID (Phase 1, D-001) — doubles as its idempotency key:
  * it already uniquely identifies "this one specific change," which is
@@ -30,19 +60,7 @@ export async function pushOutboxEntry(entry: OutboxEntry): Promise<PushResult> {
     return { ok: false, retryable: false, error: `Corrupt outbox payload: ${String(e)}` };
   }
 
-  const { data, error } = await supabase.rpc("sync_push", {
-    p_idempotency_key: entry.id,
-    p_entity_type: entry.entityType,
-    p_entity_id: entry.entityId,
-    p_operation: entry.operation,
-    p_payload: payload,
-  });
-
-  if (error) {
-    return { ok: false, retryable: isRetryable(error), error: error.message };
-  }
-
-  return { ok: true, duplicate: Boolean((data as { duplicate?: boolean } | null)?.duplicate) };
+  return pushRowOnly(entry.id, entry.entityType, entry.entityId, entry.operation, payload);
 }
 
 /**

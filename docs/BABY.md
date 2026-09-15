@@ -1228,3 +1228,106 @@ if (conflict.entityType === "project") {
 ```
 
 `{ [conflict.fieldKey]: value }` is a **computed property name** — the square brackets around `conflict.fieldKey` mean "use the _value_ of this variable as the object's key," not the literal text `"conflict.fieldKey"`. Since `conflict.fieldKey` might be `"title"` this time and `"notes"` next time, this one line can build `{ title: value }` or `{ notes: value }` depending on which conflict is actually being resolved, without a separate `if` for every possible field name. Choosing "theirs" calls `updateProject`/`updateInspection`/`saveAnswer` — the exact same functions a real screen calls when a person types into a field — which is what makes the choice "sync onward like a normal edit" (plan Section 3.5.3): it appends a fresh outbox entry the same way any other edit would, with nothing about the sync engine needing to know this particular edit came from a conflict screen rather than a text box.
+
+## Phase 3, Day 6 — uploading the actual file
+
+### `src/lib/syncApi.ts#pushRowOnly` — pulling the RPC call out from under `pushOutboxEntry`
+
+```ts
+export async function pushRowOnly(
+  idempotencyKey: string,
+  entityType: OutboxEntry["entityType"],
+  entityId: string,
+  operation: OutboxEntry["operation"],
+  payload: unknown,
+): Promise<PushResult> { /* the same supabase.rpc("sync_push", ...) call Day 2 already had */ }
+
+export async function pushOutboxEntry(entry: OutboxEntry): Promise<PushResult> {
+  let payload: unknown;
+  try { payload = JSON.parse(entry.payloadJson); } catch (e) { /* ... */ }
+  return pushRowOnly(entry.id, entry.entityType, entry.entityId, entry.operation, payload);
+}
+```
+
+This is a small, deliberate **refactor**, not new behavior: Day 2's `pushOutboxEntry` always assumed there was exactly one real `OutboxEntry` row to push. Day 6 needs to call `sync_push` a SECOND time for the same attachment — the "the file landed, here's `remote_url`" follow-up — and that second call has no `OutboxEntry` to read; it's a value this function itself computes (a storage path). Rather than inventing a fake `OutboxEntry` object just to satisfy `pushOutboxEntry`'s signature, the actual RPC call was pulled out into its own function, `pushRowOnly`, taking its four arguments directly. `pushOutboxEntry` now does one thing — unwrap a real outbox row into those same four arguments — and both it and `src/lib/attachmentUpload.ts` call the shared `pushRowOnly` underneath. The "one function is the only thing that calls `supabase.rpc(...)`" rule (this file's Day 2 section) still holds; there's just one now, not two, that do slightly different jobs on top of it.
+
+### `src/lib/attachmentUpload.ts#pushAndUploadAttachment` — three awaits, three ways to fail, one return value
+
+```ts
+const rowResult = await pushRowOnly(entry.id, "attachment", entry.entityId, "insert", payload);
+if (!rowResult.ok) return rowResult;
+```
+
+The **guard clause** pattern used throughout this codebase (`if (!x.ok) return x`), here chained three times in a row — once after the row push, once after reading the file, once after the upload, once after the follow-up push. Each guard means "if this step failed, stop right here and hand that exact failure back unchanged" — the caller (`syncEngine.ts#pushOne`) can't tell, and doesn't need to tell, which of the three steps actually failed; it only needs to know whether to keep the outbox entry around for a retry (`retryable`) or give up on it (dead-letter). This is what makes the whole three-step sequence behave like one operation from the outside, even though it's built from three separate `await`s internally.
+
+```ts
+const { File } = await import("expo-file-system");
+const file = new File(payload.localUri);
+if (!file.exists) {
+  return { ok: false, retryable: false, error: `Local file missing, can't upload: ${payload.localUri}` };
+}
+bytes = await file.bytes();
+```
+
+`await import("expo-file-system")` is a **dynamic import** — same pattern `src/lib/media.ts` already uses, and for the same reason: this module must not crash to even LOAD in the web preview, where this native package has no real file-reading implementation. `new File(payload.localUri)` and `.bytes()` are the Phase 2-cleanup, class-based `expo-file-system` API (not the older `getInfoAsync`/`readAsStringAsync` function style) — `.bytes()` specifically returns a `Uint8Array`, the raw binary shape Supabase Storage's `.upload()` wants, with no base64 text encoding/decoding step in between (base64 would both waste ~33% more bandwidth and be pure unnecessary work for something that's already binary).
+
+```ts
+const path = `${userData.user.id}/${entry.entityId}${extensionFromMimeType(payload.mimeType)}`;
+```
+
+**Template literal** building a Storage object path. `userData.user.id` — this device's own signed-in account id — is the first path segment on purpose: it's what turns a plain file path into an ownership claim the server's Storage policies can actually check (`supabase/migrations/20260914000002_attachment_storage.sql`'s `storage.foldername(name)[1] = auth.uid()::text`), the exact same idea as every table's `owner_id` column, just spelled as a folder name instead of a database column because Storage objects don't have their own extra columns to add one to.
+
+```ts
+const { error: uploadError } = await supabase.storage
+  .from(ATTACHMENTS_BUCKET)
+  .upload(path, bytes, { contentType: payload.mimeType ?? "application/octet-stream", upsert: true });
+```
+
+`supabase.storage.from(bucketName)` is Storage's equivalent of `supabase.from(tableName)` — a handle to one bucket, with its own `.upload()`/`.download()`/`.createSignedUrl()` methods. `upsert: true` is the single option doing the most work in this whole file: without it, uploading to a path that already has something there fails outright, which would make a retried (killed-mid-upload, tried-again) upload permanently stuck. With it, re-uploading identical bytes to the same path just quietly overwrites — turning "retry" into "safe to just do again," the same idempotent shape every other step in this sequence already has.
+
+### `src/lib/backgroundSync.ts` — a task the operating system calls, not this app
+
+```ts
+TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
+  try {
+    const result = await runSync();
+    const changedAnything = result.push.synced > 0 || result.pull.merged > 0;
+    return changedAnything
+      ? BackgroundFetch.BackgroundFetchResult.NewData
+      : BackgroundFetch.BackgroundFetchResult.NoData;
+  } catch (e) {
+    return BackgroundFetch.BackgroundFetchResult.Failed;
+  }
+});
+```
+
+`TaskManager.defineTask(name, fn)` is unusual compared to everything else in this codebase: it doesn't run `fn` right now — it registers `fn` under `name` in a table the native side of Expo keeps, so that later, whenever the OPERATING SYSTEM decides to wake the app up in the background, it can look up `name` and call this function, with no user tapping anything and often no screen even visible. This line has to run once, early, every time the app's JavaScript starts up at all (which is why it's written directly at the top of the file, not inside a function) — if this line hasn't run yet when the OS tries to wake the app for its scheduled background task, there's nothing registered under that name to call. The return value (`NewData`/`NoData`/`Failed`) is the app's way of telling the OS how that wake-up went, which the OS can use to help decide how eager to be about granting the next one.
+
+```ts
+export async function registerBackgroundSync(): Promise<void> {
+  const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK);
+  if (isRegistered) return;
+  await BackgroundFetch.registerTaskAsync(BACKGROUND_SYNC_TASK, {
+    minimumInterval: 15 * 60,
+    stopOnTerminate: false,
+    startOnBoot: true,
+  });
+}
+```
+
+This is the separate, second step: `defineTask` above only teaches the app WHAT to do if woken up; `registerTaskAsync` is what actually asks the operating system to start waking it up at all. `isTaskRegisteredAsync` first is a plain **idempotency check by hand** — calling `registerTaskAsync` twice isn't harmful, but there's no reason to ask the OS twice for the same thing either.
+
+### `src/app/_layout.tsx` — a dynamic `import()` used specifically so a module never loads on web
+
+```ts
+useEffect(() => {
+  if (!session || Platform.OS === "web") return;
+  let cancelled = false;
+  import("@/lib/backgroundSync")
+    .then((m) => { if (!cancelled) return m.registerBackgroundSync(); })
+    .catch((e) => console.error("[backgroundSync] registration failed", e));
+  return () => { cancelled = true; };
+}, [Boolean(session)]);
+```
+
+Every other conditional import in this app so far (`src/lib/media.ts`) is `await import(...)` used because the awaited call itself might fail on an unsupported platform. This one is different, and worth noticing why: `src/lib/backgroundSync.ts` runs `TaskManager.defineTask(...)` the moment it's loaded — not when some function inside it is called. A **static** `import backgroundSync from "@/lib/backgroundSync"` at the top of `_layout.tsx` would load (and therefore run) that file's top-level code on EVERY platform this app renders on, web included, the instant `_layout.tsx` itself loads — before the `Platform.OS === "web"` check below ever gets a chance to run. Writing `import("@/lib/backgroundSync")` as a function call, inside the `if` that already excludes web, means the whole module — and its risky top-level `defineTask` call — is never even fetched, let alone executed, on a platform this project doesn't trust it to behave correctly on (see `docs/DESIGN.md` D-024, and D-018's `expo-secure-store` story for why that distrust is earned, not paranoid).

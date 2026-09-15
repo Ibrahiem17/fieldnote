@@ -18,7 +18,9 @@ import {
 import { setProjectSyncStatus } from "@/repositories/projects";
 import { setInspectionSyncStatus } from "@/repositories/inspections";
 import { setAnswerSyncStatus } from "@/repositories/answers";
+import { setAttachmentSyncStatus } from "@/repositories/attachments";
 import { pushOutboxEntry } from "./syncApi";
+import { pushAndUploadAttachment } from "./attachmentUpload";
 import { computeBackoffDelayMs, MAX_ATTEMPTS, MAX_DELAY_MS } from "./backoff";
 import { now } from "./time";
 import type { OutboxEntry, SyncStatus } from "@/db/schema";
@@ -45,6 +47,17 @@ const setSyncStatusByEntityType: Partial<
   project: setProjectSyncStatus,
   inspection: setInspectionSyncStatus,
   answer: setAnswerSyncStatus,
+  attachment: setAttachmentSyncStatus,
+};
+
+// Day 6: which push function actually sends an entry's own type of data.
+// Every entity except `attachment` is a plain row push; an attachment also
+// has a FILE that needs to reach Storage before it can be marked synced —
+// see src/lib/attachmentUpload.ts for the full three-step sequence.
+const pushFnByEntityType: Partial<
+  Record<OutboxEntry["entityType"], (entry: OutboxEntry) => ReturnType<typeof pushOutboxEntry>>
+> = {
+  attachment: pushAndUploadAttachment,
 };
 
 // A sentinel "come back much later" time for a dead-lettered row, so it's
@@ -102,7 +115,8 @@ async function pushOne(entry: OutboxEntry): Promise<{ ok: true } | { ok: false; 
   // from "pending" to "synced" with nothing in between.
   if (setStatus) await setStatus(entry.entityId, "syncing");
 
-  const pushResult = await pushOutboxEntry(entry);
+  const pushFn = pushFnByEntityType[entry.entityType] ?? pushOutboxEntry;
+  const pushResult = await pushFn(entry);
 
   if (!pushResult.ok) {
     const attemptsAfterThis = entry.attempts + 1;
