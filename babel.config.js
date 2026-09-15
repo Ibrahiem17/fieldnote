@@ -15,6 +15,14 @@ module.exports = function (api) {
   api.cache(true);
   return {
     presets: ["babel-preset-expo"],
-    plugins: [["inline-import", { extensions: [".sql"] }]],
+    // Phase 4, Day 4: react-native-reanimated's own babel plugin rewrites
+    // every function marked as a "worklet" so it can also run on the UI
+    // thread. It MUST be listed last — Reanimated's own setup docs require
+    // this, since it needs to see the code after every other plugin
+    // (including inline-import above) has already transformed it.
+    plugins: [
+      ["inline-import", { extensions: [".sql"] }],
+      "react-native-reanimated/plugin",
+    ],
   };
 };

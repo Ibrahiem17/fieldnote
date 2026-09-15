@@ -5,7 +5,7 @@
 // deleted_at set) and TC-16 (survives a force-quit) together.
 
 import { useCallback, useState } from "react";
-import { Alert, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 
 import { Screen, Text, Input, Button, Badge, EmptyState } from "@/components";
@@ -47,9 +47,13 @@ export default function InspectionDetailScreen() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
+  // Phase 4, Day 4: same gap as every other data screen — a load failure
+  // used to only console.error, leaving the screen looking stuck loading.
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const row = await getInspection(id);
       setInspection(row);
@@ -60,6 +64,9 @@ export default function InspectionDetailScreen() {
         const p = await getProject(row.projectId);
         setProject(p);
       }
+    } catch (e) {
+      console.error(e);
+      setError("Couldn't load this inspection.");
     } finally {
       setLoading(false);
     }
@@ -76,6 +83,26 @@ export default function InspectionDetailScreen() {
       };
     }, [load]),
   );
+
+  if (loading && !inspection) {
+    return (
+      <Screen>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={theme.colors.primary} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (error) {
+    return (
+      <Screen>
+        <EmptyState title="Something went wrong" message={error}>
+          <Button label="Try again" onPress={() => load()} />
+        </EmptyState>
+      </Screen>
+    );
+  }
 
   if (!loading && !inspection) {
     return (
@@ -250,6 +277,10 @@ export default function InspectionDetailScreen() {
                 <Pressable
                   key={status}
                   onPress={() => handleStatusChange(status)}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={STATUS_LABEL[status]}
+                  accessibilityState={{ selected: active }}
                   style={{
                     paddingHorizontal: theme.spacing.sm,
                     paddingVertical: theme.spacing.xs,

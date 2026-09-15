@@ -19,6 +19,7 @@
 
 import { useEffect } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
@@ -27,19 +28,30 @@ import { db, dbInitError } from "@/db/client";
 import migrations from "../../drizzle/migrations";
 import { ThemeProvider, useTheme } from "@/theme/ThemeProvider";
 import { Text } from "@/components";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import LoginScreen from "@/auth/LoginScreen";
 import { startAutoSync } from "@/lib/syncTriggers";
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <AuthGate />
-        </AuthProvider>
-      </ThemeProvider>
-    </SafeAreaProvider>
+    // Phase 4, Day 4: every gesture in this app (Gesture Handler's
+    // Swipeable, the photo viewer's pinch/pan) needs exactly one
+    // GestureHandlerRootView somewhere above it in the tree — it's what
+    // lets Gesture Handler intercept touches before React Native's normal
+    // responder system does. Placed at the very root so it never matters
+    // which screen a gesture gets added to later.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <ErrorBoundary>
+              <AuthGate />
+            </ErrorBoundary>
+          </AuthProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

@@ -6,7 +6,8 @@
 // explain every symbol added in this file).
 
 import React, { useEffect, useRef, useState } from "react";
-import { View, Pressable, Alert, Linking } from "react-native";
+import { View, Pressable, Alert, Linking, Image } from "react-native";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Text, Input, Button } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { getAnswers, saveAnswer } from "@/repositories/answers";
@@ -18,6 +19,7 @@ import {
 import { getTemplate } from "@/repositories/templates";
 import { takePhotoAndCompress, getLocationWithTimeout } from "@/lib/media";
 import SignaturePad from "@/components/SignaturePad";
+import { PhotoViewer } from "@/components/PhotoViewer";
 
 type TemplateSchema = {
   id: string;
@@ -51,6 +53,8 @@ const FieldComponent = React.memo(function FieldComponent(props: {
   onImmediateSave: (k: string, v: any) => Promise<void>;
   setAttachments: React.Dispatch<React.SetStateAction<Record<string, any[]>>>;
   onOpenSignature: (fieldKey: string) => void;
+  /** Phase 4, Day 4: opens PhotoViewer over the given local file. */
+  onOpenPhoto: (uri: string) => void;
 }) {
   const {
     field,
@@ -61,6 +65,7 @@ const FieldComponent = React.memo(function FieldComponent(props: {
     onImmediateSave,
     setAttachments,
     onOpenSignature,
+    onOpenPhoto,
   } = props;
   const v = value ?? "";
   const theme = useTheme();
@@ -121,6 +126,14 @@ const FieldComponent = React.memo(function FieldComponent(props: {
               const next = !Boolean(v);
               onScheduleSave(field.key, next ? 1 : 0);
             }}
+            // Phase 4, Day 4: this Pressable's own padding is well under
+            // the 44pt minimum touch target — hitSlop extends the TAPPABLE
+            // area outward without changing how big it LOOKS, so it's
+            // easier to hit without redesigning the toggle's visual size.
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="switch"
+            accessibilityLabel={field.label}
+            accessibilityState={{ checked: Boolean(v) }}
             style={{
               padding: theme.spacing.xs,
               borderRadius: 6,
@@ -192,16 +205,38 @@ const FieldComponent = React.memo(function FieldComponent(props: {
             }}
           />
           {(attachmentsForField ?? []).map((a) => (
-            <View key={a.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text>
-                {/* Day 7: a.localUri is null for an attachment PULLED from
-                    another device — there's no file on this filesystem to
-                    show a path for (src/db/schema.ts's D-025), so fall back
-                    to naming the synced remote object instead of showing
-                    nothing at all. */}
-                {a.localUri ?? (a.remoteUrl ? `(synced from another device: ${a.remoteUrl})` : "(uploading…)")}
-                {(a as any).thumbLocalUri ? ` (thumb: ${(a as any).thumbLocalUri})` : ""}
-              </Text>
+            <View
+              key={a.id}
+              style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+            >
+              {/* Phase 4, Day 4: a real thumbnail, tappable to open the
+                  full-size pinch-to-zoom viewer — the first place in this
+                  app that shows a photo as an actual image instead of a
+                  text listing of its file path. Falls back to the
+                  existing text when there's no local file to show at all
+                  (Day 7's D-025 case: an attachment pulled from another
+                  device, or one still mid-upload). */}
+              {a.localUri ? (
+                <Pressable
+                  onPress={() => onOpenPhoto(a.localUri)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View photo for ${field.label}`}
+                >
+                  <Image
+                    source={{ uri: a.localUri }}
+                    style={{ width: 64, height: 64, borderRadius: 6 }}
+                  />
+                </Pressable>
+              ) : (
+                <Text style={{ flex: 1 }}>
+                  {/* Day 7: a.localUri is null for an attachment PULLED
+                      from another device — there's no file on this
+                      filesystem to show a path for (src/db/schema.ts's
+                      D-025), so fall back to naming the synced remote
+                      object instead of showing nothing at all. */}
+                  {a.remoteUrl ? `(synced from another device: ${a.remoteUrl})` : "(uploading…)"}
+                </Text>
+              )}
               <Button
                 label="Delete"
                 variant="danger"
@@ -344,6 +379,7 @@ export default function FormRenderer({
   const [answersMap, setAnswersMap] = useState<Record<string, any>>({});
   const [attachments, setAttachments] = useState<Record<string, any[]>>({});
   const [signatureModal, setSignatureModal] = useState<{ fieldKey: string } | null>(null);
+  const [viewerUri, setViewerUri] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -468,21 +504,34 @@ export default function FormRenderer({
             .map((field: any) => {
               const value = answersMap[field.key] ?? "";
               return (
-                <FieldComponent
-                  key={field.key}
-                  field={field}
-                  value={value}
-                  inspectionId={inspectionId}
-                  attachmentsForField={attachments[field.key] ?? []}
-                  onScheduleSave={scheduleSave}
-                  onImmediateSave={immediateSave}
-                  setAttachments={setAttachments}
-                  onOpenSignature={(fieldKey) => setSignatureModal({ fieldKey })}
-                />
+                // Phase 4, Day 4: a `visibleIf` field appearing/disappearing
+                // (Phase 2) is this app's real, existing equivalent of the
+                // plan's suggested "form step transition" (this app has no
+                // multi-step wizard to animate instead — docs/DESIGN.md has
+                // the full reasoning for this substitution). `entering`/
+                // `exiting` are Reanimated props: React (not this app's own
+                // code) decides WHEN to mount/unmount a field as
+                // `isFieldVisible` flips, and Reanimated plays this
+                // animation automatically at exactly that moment.
+                <Animated.View key={field.key} entering={FadeIn} exiting={FadeOut}>
+                  <FieldComponent
+                    field={field}
+                    value={value}
+                    inspectionId={inspectionId}
+                    attachmentsForField={attachments[field.key] ?? []}
+                    onScheduleSave={scheduleSave}
+                    onImmediateSave={immediateSave}
+                    setAttachments={setAttachments}
+                    onOpenSignature={(fieldKey) => setSignatureModal({ fieldKey })}
+                    onOpenPhoto={setViewerUri}
+                  />
+                </Animated.View>
               );
             })}
         </View>
       ))}
+
+      <PhotoViewer uri={viewerUri} onClose={() => setViewerUri(null)} />
 
       {/* Signature modal rendered at root level so it overlays everything */}
       {signatureModal ? (

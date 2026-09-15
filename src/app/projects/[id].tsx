@@ -5,7 +5,7 @@
 // the URL.
 
 import { useCallback, useState } from "react";
-import { View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { FlashList } from "@shopify/flash-list";
 
@@ -24,25 +24,56 @@ export default function ProjectDetailScreen() {
   const [project, setProject] = useState<Project | null>(null);
   const [inspectionList, setInspectionList] = useState<Inspection[]>([]);
   const [loading, setLoading] = useState(true);
+  // Phase 4, Day 4: same gap as every other list screen — a load failure
+  // used to just leave the screen looking permanently loading/empty.
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    return Promise.all([getProject(id), listInspections({ projectId: id })])
+      .then(([p, rows]) => {
+        setProject(p);
+        setInspectionList(rows);
+      })
+      .catch((e) => {
+        console.error(e);
+        setError("Couldn't load this project.");
+      })
+      .finally(() => setLoading(false));
+  }, [id]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      setLoading(true);
-      Promise.all([getProject(id), listInspections({ projectId: id })])
-        .then(([p, rows]) => {
-          if (cancelled) return;
-          setProject(p);
-          setInspectionList(rows);
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
+      load().catch((e) => {
+        if (!cancelled) console.error(e);
+      });
       return () => {
         cancelled = true;
       };
-    }, [id]),
+    }, [load]),
   );
+
+  if (loading && !project) {
+    return (
+      <Screen>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={theme.colors.primary} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (error) {
+    return (
+      <Screen>
+        <EmptyState title="Something went wrong" message={error}>
+          <Button label="Try again" onPress={() => load()} />
+        </EmptyState>
+      </Screen>
+    );
+  }
 
   if (!loading && !project) {
     return (
@@ -78,7 +109,10 @@ export default function ProjectDetailScreen() {
         contentContainerStyle={{ padding: theme.spacing.md, paddingTop: 0 }}
         ItemSeparatorComponent={() => <View style={{ height: theme.spacing.sm }} />}
         renderItem={({ item }) => (
-          <Card onPress={() => router.push(`/inspections/${item.id}`)}>
+          <Card
+            onPress={() => router.push(`/inspections/${item.id}`)}
+            accessibilityLabel={item.title}
+          >
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
               <Text variant="subtitle" style={{ flex: 1 }} numberOfLines={2}>
                 {item.title}
@@ -91,12 +125,10 @@ export default function ProjectDetailScreen() {
           </Card>
         )}
         ListEmptyComponent={
-          loading ? null : (
-            <EmptyState
-              title="No inspections for this project"
-              message="Create the first one above."
-            />
-          )
+          <EmptyState
+            title="No inspections for this project"
+            message="Create the first one above."
+          />
         }
       />
     </Screen>

@@ -46,6 +46,13 @@ export function Button({
     <Pressable
       onPress={onPress}
       disabled={isDisabled}
+      // Phase 4, Day 4: `label` is already a required prop on every
+      // Button in this app, so a screen reader announcing it costs
+      // nothing new to wire up — it's the one piece of text every call
+      // site already had to supply anyway.
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
       // The style prop can take a function: React Native calls it with the
       // current press/hover state and we return different styles per state.
       style={({ pressed }) => [

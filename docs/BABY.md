@@ -1418,3 +1418,47 @@ The `if (canShare) { ... } else { Alert.alert(...) }` — an `if`/`else`: if sha
 `const theme = palettes.light;` — picks out just the light-mode half of the two-palette object once, at the top of the file, and reuses it everywhere below. Written as `palettes.light` deliberately, not `palettes[currentScheme]` — a PDF report is a fixed document, not a live screen, so it always renders the same way regardless of whether the phone that opens it later is in dark mode.
 
 Inside the `STYLE` template string, spots that used to say a literal `#2b5fa8` now say `${theme.primary}` — a **template literal expression**: anything inside `${...}` is real JavaScript, evaluated once when the string is built, and its result (here, the string `"#2563EB"`) is spliced into the final CSS text. The browser/print-engine reading the finished HTML never sees `${theme.primary}` at all — only the real hex code it evaluated to.
+
+## Phase 4, Day 4 — Reanimated, Gesture Handler, ErrorBoundary, and every screen's states
+
+### `src/components/ErrorBoundary.tsx` — the one class component in this app
+
+`export class ErrorBoundary extends Component<Props, State>` — every other component in this app is a plain function; this one has to be a **class** because React only gives error-catching superpowers to class components (`getDerivedStateFromError`/`componentDidCatch`), never to a function component or a hook — there is genuinely no other way to write this in current React.
+
+`static getDerivedStateFromError(error: Error): State` — `static` means this method belongs to the CLASS itself, not to any one instance of it — React calls it automatically, the instant something below this component throws while rendering. Whatever object it returns becomes this component's new `state`.
+
+`componentDidCatch(error, info)` — called right after `getDerivedStateFromError`, but for a different job: `getDerivedStateFromError` computes new state (React requires this to have no side effects — no logging, no network calls); `componentDidCatch` is where side effects like `console.error(...)` actually belong.
+
+`this.setState({ error: null })` inside `reset` — the fallback screen's "Try again" button calls this, which clears the error and makes React attempt to render `this.props.children` (whatever crashed) again from scratch, without restarting the whole app.
+
+`render()`'s `if (this.state.error) { ... } return this.props.children;` — an ordinary `if`/`return`: show the fallback UI while an error is stored, otherwise render whatever this component was wrapping, completely normally.
+
+### `src/components/SyncStatusDot.tsx` — an animation driven by a "shared value"
+
+`const pop = useSharedValue(1)` — a Reanimated **shared value**: a box holding a number that both the normal JS side of the app AND the UI-drawing side can read and write, kept in sync automatically. Ordinary React `useState` can only be read/written from JS — Reanimated's whole point is animations that don't have to wait on the JS thread at all.
+
+`useEffect(() => { pop.value = withSequence(withTiming(1.6, ...), withTiming(1, ...)) }, [status])` — every time `status` changes, this runs: `withTiming(1.6, { duration: 120 })` means "animate smoothly to 1.6 over 120ms"; `withSequence(a, b)` means "play `a`, then when it finishes, play `b`" — so the dot grows to 1.6x its size, then shrinks back to its normal size, over roughly a third of a second total.
+
+`useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }))` — this function is a **worklet** (Reanimated's babel plugin, configured today in `babel.config.js`, is what makes this possible): instead of running in ordinary JavaScript, it's compiled to also run directly on the UI thread, so the dot keeps animating smoothly even if the JS thread is busy doing something else (like a sync running).
+
+`<Animated.View style={[...]}>` instead of a plain `<View>` — `Animated.View` (from `react-native-reanimated`, not the RN core one) is the one View variant that actually reads a worklet-produced style and updates it every frame; a plain `View` would just ignore `dotStyle` entirely.
+
+### `src/components/PhotoViewer.tsx` — two gestures happening at once
+
+`Gesture.Pinch().onUpdate((e) => { scale.value = ... }).onEnd(() => { ... })` — `Gesture.Pinch()` builds a description of "a two-finger pinch gesture"; `.onUpdate` runs continuously while it's happening (`e.scale` is how much bigger/smaller the fingers have moved apart since the pinch started), `.onEnd` runs once, when the fingers lift.
+
+`Gesture.Simultaneous(pinch, pan)` — normally, only one gesture "wins" at a time. `Simultaneous` says "let both of these be recognized together" — so someone can pinch-zoom and drag in one continuous motion, the way a real photo app works.
+
+`<GestureDetector gesture={composedGesture}>` — the component that actually listens for the combined gesture and drives the shared values above; it needs a `GestureHandlerRootView` somewhere above it in the tree to work at all — added today in `src/app/_layout.tsx`, once, for the whole app.
+
+### `src/app/_layout.tsx` — one wrapper, once, for every gesture the app will ever have
+
+`<GestureHandlerRootView style={{ flex: 1 }}>` — Gesture Handler needs to intercept touches before React Native's own default touch system does; this component is what makes that possible, and it only ever needs to exist ONCE, wrapping everything — not once per screen that happens to use a gesture.
+
+### `src/app/(tabs)/inspections.tsx` — `Swipeable`
+
+`<Swipeable renderRightActions={() => (...)}>` — wraps one row. `renderRightActions` is called by `Swipeable` itself while the user is dragging the row leftward, revealing whatever this function returns (here, a red "Delete" button) from behind the row.
+
+### Every data screen — the loading/error pattern, repeated four times
+
+`{loading && list.length === 0 ? <ActivityIndicator /> : error ? <EmptyState>...</EmptyState> : <FlashList ... />}` — a chain of two `? :` ("ternary") checks read top to bottom: "if genuinely still loading with nothing to show yet, show a spinner; otherwise, if the last load failed, show the error message; otherwise, show the real list." Only one of the three ever renders at once.
