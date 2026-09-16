@@ -19,6 +19,7 @@ import { View } from "react-native";
 import { Text } from "./Text";
 import { Button } from "./Button";
 import { palettes } from "@/theme/tokens";
+import { reportError } from "@/lib/sentry";
 
 type Props = { children: ReactNode };
 type State = { error: Error | null };
@@ -35,12 +36,14 @@ export class ErrorBoundary extends Component<Props, State> {
 
   // Separate from getDerivedStateFromError on purpose — that one exists
   // to compute new state (must be pure); this one exists to have a SIDE
-  // EFFECT (logging) once the error is known. Phase 4's Sentry wiring
-  // (Day 6) is what will make this loud in production; for now it's the
-  // same console.error discipline the rest of this app already uses for
-  // caught failures.
+  // EFFECT (logging) once the error is known. `reportError` (Phase 4,
+  // Day 6) sends it to Sentry when a real DSN is configured — this
+  // sandbox has none, so today that call is a no-op, same as it's always
+  // been; console.error stays regardless, so a crash is never silent
+  // even without Sentry.
   componentDidCatch(error: Error, info: { componentStack: string }): void {
     console.error("[ErrorBoundary] caught a render error:", error, info.componentStack);
+    reportError(error);
   }
 
   // Lets the fallback screen's "Try again" button attempt a fresh render

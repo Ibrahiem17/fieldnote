@@ -32,6 +32,13 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import LoginScreen from "@/auth/LoginScreen";
 import { startAutoSync } from "@/lib/syncTriggers";
+import { initSentry } from "@/lib/sentry";
+
+// Phase 4, Day 6: called once, at module load — before any component
+// renders, so a crash during the very first render is still covered.
+// A no-op with no DSN configured (src/lib/sentry.ts) — this sandbox's
+// permanent state, since no real Sentry account exists to create one.
+initSentry();
 
 export default function RootLayout() {
   return (

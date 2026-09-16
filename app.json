@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
+      "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "FieldNote needs camera access to capture inspection photos.",
         "NSLocationWhenInUseUsageDescription": "FieldNote needs your location to stamp inspections with GPS coordinates."
@@ -22,6 +23,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "versionCode": 1,
       "permissions": [
         "CAMERA",
         "ACCESS_FINE_LOCATION"
@@ -36,7 +38,8 @@
       "expo-secure-store",
       "expo-task-manager",
       "expo-background-fetch",
-      "expo-sharing"
+      "expo-sharing",
+      "@sentry/react-native"
     ]
   }
 }

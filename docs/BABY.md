@@ -1492,3 +1492,27 @@ Nothing new syntactically here — it's the same function that used to live insi
 `jest.mock(...)` calls are **hoisted** — Jest's own babel transform physically moves every `jest.mock(...)` call in a file to the very top, before any `import` statement, even if you typed it further down. That's *why* the closed-over variables inside a mock's factory function have to be named starting with `mock` — otherwise you'd be referencing a variable that, at the point this code actually runs, doesn't exist yet.
 
 `beforeAll(async () => { await migrate(mockDb, { migrationsFolder: "./drizzle" }); })` — `beforeAll` is another Jest global: the function inside runs once, before any `test(...)` in this file, instead of running again before every individual test (that would be `beforeEach`). `migrate(...)` reads this project's real, already-generated migration files from the `drizzle/` folder and applies them to the in-memory test database — the exact same schema the real app would end up with.
+
+## Phase 4, Day 6 — GitHub Actions, and gating a service on whether it's actually configured
+
+### `.github/workflows/ci.yml` — this project's first YAML workflow
+
+`name: CI` — just a label, shown in GitHub's own UI for this workflow.
+
+`on: push: pull_request:` — **triggers**: this whole file only runs when one of these things happens. Listing both means it runs on every push to any branch, AND separately whenever a pull request is opened or updated.
+
+`jobs: check: runs-on: ubuntu-latest` — a **job** is one machine's worth of work; `runs-on` picks which kind of machine GitHub spins up fresh for it — here, a clean Ubuntu Linux virtual machine, thrown away after the job finishes.
+
+`steps:` — an ordered list; each one runs after the previous one finishes, and if any step fails, the whole job stops there and is marked failed.
+
+`uses: actions/checkout@v4` — a **step that runs someone else's pre-built code** (an "action") instead of a shell command — this one's job is simply "clone this repository's code onto the machine," the first thing almost every workflow needs.
+
+`uses: actions/setup-node@v4` with `with: node-version: "24"` — another pre-built action, this one installs Node.js itself onto the fresh machine, at the exact version this project actually uses. `with:` is how you pass options into an action, the same idea as props into a component.
+
+`run: npm ci` — unlike `uses:`, `run:` executes a literal shell command. `npm ci` (not `npm install`) is the version meant for exactly this situation: it installs precisely what `package-lock.json` says, and fails outright if that file and `package.json` disagree — faster and stricter than `npm install`, which is why CI always uses it and a developer's own machine usually doesn't.
+
+### `src/lib/sentry.ts` — a service that's either fully on or fully off
+
+`const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN;` — reads an environment variable once, at the top of the file. `EXPO_PUBLIC_` is a naming convention Expo itself looks for — anything prefixed that way gets baked into the app bundle at build time (the same reasoning `.env.example`'s Supabase keys already explain).
+
+`if (!dsn) return;` at the top of both `initSentry()` and `reportError()` — an **early return**: if there's no DSN, stop the function immediately, before doing anything else. This is the entire mechanism that makes Sentry "gated" — no `if/else` branching logic elsewhere in the app ever has to ask "is Sentry configured?" — the two functions themselves already know, and simply do nothing when it isn't.
