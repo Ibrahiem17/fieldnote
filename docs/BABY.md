@@ -1462,3 +1462,33 @@ Inside the `STYLE` template string, spots that used to say a literal `#2b5fa8` n
 ### Every data screen — the loading/error pattern, repeated four times
 
 `{loading && list.length === 0 ? <ActivityIndicator /> : error ? <EmptyState>...</EmptyState> : <FlashList ... />}` — a chain of two `? :` ("ternary") checks read top to bottom: "if genuinely still loading with nothing to show yet, show a spinner; otherwise, if the last load failed, show the error message; otherwise, show the real list." Only one of the three ever renders at once.
+
+## Phase 4, Day 5 — automated tests, Jest, and mocking a database
+
+### `jest.config.js` — teaching Jest the same shortcuts the app already has
+
+`preset` isn't used at all here — most Expo projects would use `jest-expo`, but this one doesn't (see `docs/DESIGN.md` D-031 for the real reason: a genuine upstream version mismatch, not a preference). `testEnvironment: "node"` tells Jest to run tests in a plain Node.js environment rather than pretending to be a browser or a phone — correct here since nothing in this test suite draws to a screen.
+
+`transform: { "^.+\.[jt]sx?$": "babel-jest" }` — a **regular expression** matching any file ending in `.js`, `.jsx`, `.ts`, or `.tsx` (`[jt]` means "either the letter j or the letter t", `sx?` means "an s, then an optional x"), telling Jest to run every one of those files through `babel-jest` before executing it — which itself reads this project's own `babel.config.js`, the same one Metro uses for the real app.
+
+`moduleNameMapper: { "^@/(.*)$": "<rootDir>/src/$1" }` — another regular expression: `^@/` matches the start of an import path being exactly `@/`, `(.*)`  captures everything after it. `<rootDir>/src/$1` is the replacement — `$1` refers back to whatever `(.*)` captured. So `import x from "@/lib/id"` becomes, as far as Jest's resolver is concerned, `<rootDir>/src/lib/id` — teaching Jest the exact same alias `tsconfig.json` already set up for the real app.
+
+### `src/lib/visibility.ts` — one function, three importers
+
+Nothing new syntactically here — it's the same function that used to live inside three other files, moved to its own file and `export`ed so a test (and the other two files) can `import` it.
+
+### `src/lib/conflict.test.ts`, `backoff.test.ts`, `validation.test.ts` — the shape of a test
+
+`test("a plain-English description", () => { ... })` — `test` is a **global function** Jest adds automatically to every test file (no import needed) — the first argument is a description a human reads in the output, the second is a function containing the actual check.
+
+`expect(actualValue).toBe(expectedValue)` — `expect(...)` wraps a real value your code produced; `.toBe(...)` is a **matcher** — one of many functions Jest provides for comparing it to what you expected. `.toBe` checks exact equality (`===`); `.toEqual` (used for comparing whole objects) checks that two objects have the same *contents*, even if they're not literally the same object in memory; `.toBeLessThan`/`.toBeGreaterThanOrEqual` compare numbers.
+
+`baseArgs()` in `conflict.test.ts` — an ordinary function returning a fresh object every time it's called, used at the start of most tests as `{ ...baseArgs(), someField: "override" }`. The spread (`...`) copies every property from `baseArgs()`'s result into a new object, then the properties written after it overwrite just the ones that changed — so each test only has to spell out what makes IT different, not repeat every field seven times.
+
+### `src/repositories/projects.integration.test.ts` — replacing one whole file, for one test file only
+
+`jest.mock("@/db/client", () => ({ isDbAvailable: () => true, requireDb: () => mockDb }))` — this is Jest **module mocking**: whenever any code THIS TEST FILE imports (directly or indirectly) tries to `import ... from "@/db/client"`, Jest hands it this fake object instead of running the real file at all. `src/repositories/projects.ts` itself never knows the difference — it calls `requireDb()` exactly like always, and gets back a real (if temporary, in-memory) database instead of crashing on a missing native module.
+
+`jest.mock(...)` calls are **hoisted** — Jest's own babel transform physically moves every `jest.mock(...)` call in a file to the very top, before any `import` statement, even if you typed it further down. That's *why* the closed-over variables inside a mock's factory function have to be named starting with `mock` — otherwise you'd be referencing a variable that, at the point this code actually runs, doesn't exist yet.
+
+`beforeAll(async () => { await migrate(mockDb, { migrationsFolder: "./drizzle" }); })` — `beforeAll` is another Jest global: the function inside runs once, before any `test(...)` in this file, instead of running again before every individual test (that would be `beforeEach`). `migrate(...)` reads this project's real, already-generated migration files from the `drizzle/` folder and applies them to the in-memory test database — the exact same schema the real app would end up with.

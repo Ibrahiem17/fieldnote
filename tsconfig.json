@@ -6,7 +6,17 @@
       "@/*": [
         "./src/*"
       ]
-    }
+    },
+    // Phase 4, Day 5: lets `npm run typecheck` also check *.test.ts files
+    // (global `test`/`expect`/`describe`, from @types/jest), not just app
+    // code — a test file with a real type error should fail the same bar
+    // as any other source file. "node" is here only because the
+    // integration test imports `node:crypto` directly (Node-only,
+    // test-only — never imported by any shipped app code).
+    "types": [
+      "jest",
+      "node"
+    ]
   },
   "include": [
     "**/*.ts",

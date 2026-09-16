@@ -3,6 +3,8 @@
 // new dependency (Zod) while still providing the Phase 2-required runtime
 // checks for `required`, `min`, `max`, and `maxLength`.
 
+import { isFieldVisible } from "./visibility";
+
 export type TemplateField = any;
 
 export function buildValidator(schema: { sections: { fields: TemplateField[] }[] }) {
@@ -12,15 +14,10 @@ export function buildValidator(schema: { sections: { fields: TemplateField[] }[]
     const errors: Record<string, string> = {};
     for (const section of schema.sections ?? []) {
       for (const field of section.fields ?? []) {
-        // Skip hidden fields if their field has a `visibleIf` that isn't met;
-        // the caller must filter those out before calling this validator if
-        // they want hidden fields excluded. For now we do a simple check:
-        if (field.visibleIf) {
-          const other = answers[field.visibleIf.field];
-          if (!other || !field.visibleIf.in?.includes(other)) {
-            continue; // field hidden, skip validation
-          }
-        }
+        // Phase 4, Day 5: shares the exact same check FormRenderer.tsx
+        // renders with (src/lib/visibility.ts) — a field hidden on screen
+        // is now guaranteed excluded here too, not just conventionally.
+        if (!isFieldVisible(field, answers)) continue;
 
         const v = answers[field.key];
         if (field.required) {

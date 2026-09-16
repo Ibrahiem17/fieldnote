@@ -20,6 +20,7 @@ import { getTemplate } from "@/repositories/templates";
 import { takePhotoAndCompress, getLocationWithTimeout } from "@/lib/media";
 import SignaturePad from "@/components/SignaturePad";
 import { PhotoViewer } from "@/components/PhotoViewer";
+import { isFieldVisible } from "@/lib/visibility";
 
 type TemplateSchema = {
   id: string;
@@ -32,16 +33,11 @@ type TemplateSchema = {
   }[];
 };
 
-// Same `visibleIf` check `src/lib/validation.ts` uses to decide whether a
-// hidden field should be skipped during validation — kept here too so a
-// field that's hidden is actually hidden on screen, not just excluded from
-// the completion check. The two must agree: a field that's rendered but not
-// validated (or the reverse) would be a confusing, hard-to-explain bug.
-function isFieldVisible(field: any, answers: Record<string, any>): boolean {
-  if (!field.visibleIf) return true;
-  const other = answers[field.visibleIf.field];
-  return Boolean(other) && Boolean(field.visibleIf.in?.includes(other));
-}
+// `isFieldVisible` itself now lives in src/lib/visibility.ts, shared with
+// src/lib/validation.ts and src/lib/report.ts (Phase 4, Day 5) — a field
+// that's hidden here is guaranteed to also be excluded from validation and
+// from reports, by construction, not by three copies staying in sync by
+// hand.
 
 // Move FieldComponent outside the main function so it can be memoized reliably.
 const FieldComponent = React.memo(function FieldComponent(props: {

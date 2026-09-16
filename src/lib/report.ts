@@ -14,6 +14,7 @@ import { getProject } from "@/repositories/projects";
 import { getTemplate } from "@/repositories/templates";
 import { getAnswers } from "@/repositories/answers";
 import { listAttachmentsForInspection } from "@/repositories/attachments";
+import { isFieldVisible } from "./visibility";
 import type { Attachment, Inspection, Project } from "@/db/schema";
 
 // The template format has no formal types anywhere in this codebase yet
@@ -28,14 +29,6 @@ type TemplateField = {
 };
 type TemplateSection = { id: string; title: string; fields: TemplateField[] };
 type TemplateSchema = { id: string; name: string; version: number; sections: TemplateSection[] };
-
-/** Exact copy of FormRenderer.tsx's isFieldVisible — the report must agree
- * with what the user actually saw, not re-derive its own opinion of it. */
-function isFieldVisible(field: TemplateField, answers: Record<string, unknown>): boolean {
-  if (!field.visibleIf) return true;
-  const other = answers[field.visibleIf.field];
-  return Boolean(other) && Boolean(field.visibleIf.in?.includes(other as never));
-}
 
 /** The literal string the plan's Section 4.2 requires for an unanswered
  * field — never a blank, which reads as the report having failed. */
