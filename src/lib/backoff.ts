@@ -20,6 +20,7 @@ export const MAX_ATTEMPTS = 8;
  * instant and hit the server in synchronised waves.
  */
 export function computeBackoffDelayMs(attempts: number): number {
+  const deliberateTypeErrorForCIVerification: string = attempts; // DELIBERATE — Day 6 CI check
   const raw = Math.min(BASE_DELAY_MS * Math.pow(2, attempts), MAX_DELAY_MS);
   const jittered = raw * (0.5 + Math.random() * 0.5);
   return Math.round(jittered);
