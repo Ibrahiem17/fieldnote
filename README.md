@@ -113,7 +113,7 @@ Then press `a` for the Android emulator, `i` for iOS simulator (macOS only), or 
 src/
   app/                  # Expo Router screens — file path = URL path
     _layout.tsx         # root: Sentry init, gesture root, error boundary, auth gate, migrations
-    (tabs)/              # Projects / Inspections / Settings tab bar
+    (tabs)/              # Projects / Inspections / How to use / Settings tab bar
     projects/[id].tsx
     inspections/[id].tsx # detail, edit, generate report, swipe-to-delete
     inspections/new.tsx
@@ -130,7 +130,7 @@ patches/                # patch-package fixes applied to node_modules on install
 .github/workflows/      # CI — typecheck, lint, test on every push
 docs/
   SYNC.md                     # the sync protocol — push, pull, conflict policy, worked examples
-  DESIGN.md                   # every decision that had a real alternative, and why (32 entries)
+  DESIGN.md                   # every decision that had a real alternative, and why (D-001 through D-047)
   UNDERSTANDING.md            # what the app does, in plain words, no code
   BABY.md                     # every meaningful line of code, explained symbol by symbol
   PERFORMANCE.md              # Day 3's honest record: blocked, and why, with two named hypotheses
@@ -188,9 +188,11 @@ Mirrored on Supabase (`supabase/migrations/`) with `owner_id` and a trigger-set 
 ## Documentation
 
 - [`docs/SYNC.md`](docs/SYNC.md) — the sync protocol: push, pull, the conflict policy with worked examples, the four questions an interviewer would actually ask
-- [`docs/DESIGN.md`](docs/DESIGN.md) — every decision that had a real alternative, and why it went the way it did (32 entries, D-001 through D-032)
+- [`docs/DESIGN.md`](docs/DESIGN.md) — every decision that had a real alternative, and why it went the way it did (D-001 through D-047)
 - [`docs/UNDERSTANDING.md`](docs/UNDERSTANDING.md) — what the app does, in plain words, no code
 - [`docs/BABY.md`](docs/BABY.md) — every meaningful line of code, explained symbol by symbol
+- [`docs/RELEASE.md`](docs/RELEASE.md) — what is built and checked for release, what needs accounts (Play, Apple, Sentry), and known limits
+- [`docs/TEST-RESULTS-DEVICE.md`](docs/TEST-RESULTS-DEVICE.md) — the real-phone results, row by row, with what was and wasn't verified
 - [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — the honest record of Day 3: blocked, why, and two named hypotheses for whoever eventually has a device
 - [`docs/TEST-RESULTS-PHASE-1.md`](docs/TEST-RESULTS-PHASE-1.md) / [`-2`](docs/TEST-RESULTS-PHASE-2.md) / [`-3`](docs/TEST-RESULTS-PHASE-3.md) / [`-4`](docs/TEST-RESULTS-PHASE-4.md) — the formal test pass for each phase, case by case
 
@@ -198,15 +200,15 @@ Mirrored on Supabase (`supabase/migrations/`) with `owner_id` and a trigger-set 
 
 Being honest about these is the point, not an afterthought — a documented limitation reads as maturity; a hidden one reads as carelessness when someone finds it.
 
-- **No production build exists, and no install link exists.** `eas build` needs a real Expo account login and real Apple/Google signing credentials — none of which an autonomous build session can create on its own. `eas.json` and the version/build numbers a real build needs are in place; the build itself has never been run.
-- **A physical device was only available after all four phases were built.** A Samsung A51 (Android 13) was first attached after Phase 4; the results are in [`docs/TEST-RESULTS-DEVICE.md`](docs/TEST-RESULTS-DEVICE.md). Verified on it so far: install and launch, session and data persistence across force-quit, camera capture and photo size, a real GPS fix, the location-denied path, signature capture, and a deep link with the app running. That first hands-on run found and fixed six real bugs that the web preview and automated tests could not see (see `docs/DESIGN.md` D-033–D-037). **Still not verified on a device:** airplane-mode sync end to end, the PDF report actually rendering and sharing, a deep link with the app fully closed, performance measurement, swipe/pinch gesture feel, and a screen-reader run. Earlier phases' `TEST-RESULTS` files still record those as blocked, because they were written before a device existed.
+- **Store distribution has not happened.** A signed production Android APK (v1.1.0, built with `eas build --profile production`) exists and was installed and run on a real phone with the development server switched off; it is not on Google Play or the App Store, which need paid developer accounts. iOS has never been run. What is done and what needs an account is in [`docs/RELEASE.md`](docs/RELEASE.md).
+- **A physical device was only available after all four phases were built.** A Samsung A51 (Android 13) was first attached after Phase 4; the results are in [`docs/TEST-RESULTS-DEVICE.md`](docs/TEST-RESULTS-DEVICE.md). Verified on it: install and launch, session and data persistence across force-quit, camera capture and photo size, a real GPS fix, the location-denied path, signature capture, a deep link with the app running, creating projects and inspections through the real UI, the full Site Safety Walk, offline create → reconnect → upload, the upload banner, the PDF report being generated and the share sheet opening, and the redesigned screens, splash and How to use tab. That hands-on work found and fixed many real bugs that the web preview and automated tests could not see (`docs/DESIGN.md` D-033–D-045). **Still not verified on a device:** what the PDF looks like when opened, a deep link with the app fully closed, performance measurement, animation and gesture feel, a screen-reader run, and the launcher/themed icon. Earlier phases' `TEST-RESULTS` files still record some of these as blocked, because they were written before a device existed.
 - **Seeded (dev-fixture) data never syncs.** "Reset & Reseed" writes no outbox entries by design, so seeded projects and the inspections inside them stay on the phone. Real projects come from the **New Project** screen (added after the first device run, `docs/DESIGN.md` D-039 — built and typechecked, first on-device run still pending).
-- **Airplane-mode sync, end to end, is not yet verified.** After the D-038 fixes an app-created project reached Supabase (confirmed in the dashboard); the offline-create-then-reconnect inspection test was started and is pending a repeat.
+- **Server-side arrival of one real inspection is left to a dashboard check.** Offline create → reconnect → upload was verified on the phone (items became `synced`, the queue emptied), but this project cannot read your Supabase data as you (row-level security blocks it, correctly), so confirming the rows in the Supabase dashboard is a manual step.
 - **Photo size is not hard-capped.** Photos are resized to a 1600 px long edge at JPEG quality 0.7, not compressed to a target size; the one photo measured after the fix was about 124 KB, but a very detailed scene could still exceed 300 KB.
 - **GPS uses "balanced" accuracy** (measured about 100 m on the test phone), not high accuracy — adequate for stamping a site, not for sub-10 m needs.
 - **No Sentry account exists**, so crash reporting is installed and wired (`src/lib/sentry.ts`) but has never sent a real report — gated on an unset `EXPO_PUBLIC_SENTRY_DSN`, a deliberate no-op rather than a silent gap.
 - **`date` fields are typed, not picked.** All ten of the plan's field types now exist (`text`, `longtext`, `number`, `select`, `multiselect`, `boolean`, `date`, `photo`, `gps`, `signature`), and `visibleIf` supports `in`, `equals` and `notEmpty`. But a date is entered as digits (`YYYY-MM-DD`, hyphens inserted automatically) rather than through a native calendar, because a picker needs a new native module and therefore a new build (`docs/DESIGN.md` D-041). `rating` (mentioned in the Phase 4 plan) was never built.
-- **A third template proving the form engine needs zero code changes for a new inspection type was never authored** — the plan's own explicit test for whether Phase 2 succeeded, still open.
+- **A third template proving the form engine needs zero code changes was authored** ("Site Safety Walk", `docs/DESIGN.md` D-040) and is guarded by tests; it is listed here only because earlier phase documents still describe it as open.
 - **Web preview may run in "preview mode" (sample data) instead of against a real database, depending on your browser** — see [`docs/DESIGN.md`](docs/DESIGN.md) D-008 through D-014. Every repository falls back to an in-memory mock store when the real database can't open, so the real screens still render with a persistent "Preview mode" banner. Android and iOS use native on-device SQLite and were never affected — web was never a target platform.
 - **Runtime validation is hand-rolled, not Zod**, despite the original plan specifying Zod — a deliberate, working choice, just never written down until this project's own mid-Phase-4 audit caught the gap (`docs/DESIGN.md` D-027).
 
