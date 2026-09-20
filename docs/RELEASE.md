@@ -39,8 +39,9 @@ honest: "done" means built **and** looked at on a real phone; anything else is l
 - A photo taken on one phone cannot yet be **displayed** on another phone after syncing (the file is in
   storage, the app only shows local files).
 - Two "Notes" fields appear in some templates; dates are typed (with a "Use today's date" button).
-- Not measured on a device: performance numbers, gesture feel, screen-reader (TalkBack) behaviour,
-  the deep link with the app fully closed.
+- Not measured on a device: performance numbers and screen-reader (TalkBack) behaviour. (The PDF's
+  appearance, the deep link with the app closed, animation feel, the launcher icon and the sign-in screen
+  were checked by hand by the developer — see `TEST-RESULTS-DEVICE.md`.)
 - Light mode only; dark mode was deliberately not built.
 - iOS: never run.
 
