@@ -27,7 +27,7 @@ import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
 import { db, dbInitError } from "@/db/client";
 import migrations from "../../drizzle/migrations";
 import { ThemeProvider, useTheme } from "@/theme/ThemeProvider";
-import { Text } from "@/components";
+import { Text, ToastProvider } from "@/components";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import LoginScreen from "@/auth/LoginScreen";
@@ -54,7 +54,9 @@ export default function RootLayout() {
         <ThemeProvider>
           <AuthProvider>
             <ErrorBoundary>
-              <AuthGate />
+              <ToastProvider>
+                <AuthGate />
+              </ToastProvider>
             </ErrorBoundary>
           </AuthProvider>
         </ThemeProvider>

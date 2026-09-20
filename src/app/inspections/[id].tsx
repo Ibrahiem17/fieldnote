@@ -1,42 +1,37 @@
 // src/app/inspections/[id].tsx  →  route "/inspections/anything"
 //
-// View, edit and (soft) delete a single inspection. Exercises TC-13
-// (edit persists), TC-14/TC-15 (delete soft-deletes, row survives with
-// deleted_at set) and TC-16 (survives a force-quit) together.
+// The screen a person spends most of their time on: fill in an inspection,
+// finish it, and send a report. Everything saves by itself as you go (no Save
+// button to forget), the screen says so, and "Mark as complete" tells you
+// exactly what's still missing, by name, right under the field.
 
-import { useCallback, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, ScrollView, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 
-import { Screen, Text, Input, Button, Badge, EmptyState } from "@/components";
+import { Screen, Text, Input, Button, Badge, EmptyState, useToast } from "@/components";
 import FormRenderer from "@/components/FormRenderer";
 import { useTheme } from "@/theme/ThemeProvider";
 import { getInspection, softDeleteInspection, updateInspection } from "@/repositories/inspections";
 import { getTemplate } from "@/repositories/templates";
 import { getAnswers } from "@/repositories/answers";
 import { buildValidator } from "@/lib/validation";
+import { listProblems, summarizeProblems } from "@/lib/completion";
 import { getProject } from "@/repositories/projects";
 import { formatTimestamp } from "@/lib/time";
 import { buildReportData } from "@/lib/report";
 import { buildReportHtml } from "@/lib/reportHtml";
-import {
-  INSPECTION_STATUSES,
-  type Inspection,
-  type InspectionStatus,
-  type Project,
-} from "@/db/schema";
+import type { Inspection, InspectionStatus, Project } from "@/db/schema";
 
-const STATUS_LABEL: Record<InspectionStatus, string> = {
-  draft: "Draft",
-  in_progress: "In progress",
-  completed: "Completed",
-  submitted: "Submitted",
-};
+type SaveState = "idle" | "saving" | "saved" | "error";
+
+const SAVE_DELAY_MS = 700;
 
 export default function InspectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useTheme();
   const router = useRouter();
+  const toast = useToast();
 
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [project, setProject] = useState<Project | null>(null);
@@ -44,12 +39,58 @@ export default function InspectionDetailScreen() {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [titleError, setTitleError] = useState<string | undefined>();
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
   const [generatingReport, setGeneratingReport] = useState(false);
-  // Phase 4, Day 4: same gap as every other data screen — a load failure
-  // used to only console.error, leaving the screen looking stuck loading.
+  const [completing, setCompleting] = useState(false);
+  // Field key → message, filled by "Mark as complete" and shown under each field.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // Phase 4, Day 4: a load failure used to only console.error, leaving the
+  // screen looking stuck loading.
   const [error, setError] = useState<string | null>(null);
+
+  // --- autosave for the title and general notes ---------------------------------
+  // (The template's own answers are saved by FormRenderer the same way.)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef({ title: "", notes: "" });
+
+  const saveNow = useCallback(async () => {
+    const { title: t, notes: n } = latest.current;
+    if (!id) return;
+    if (t.trim().length === 0) {
+      setTitleError("Give this inspection a title.");
+      setSaveState("idle");
+      return;
+    }
+    try {
+      const updated = await updateInspection(id, { title: t.trim(), notes: n.trim() || null });
+      setInspection(updated);
+      setSaveState("saved");
+    } catch (e) {
+      console.error(e);
+      setSaveState("error");
+    }
+  }, [id]);
+
+  const scheduleSave = (nextTitle: string, nextNotes: string) => {
+    latest.current = { title: nextTitle, notes: nextNotes };
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveState("saving");
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      void saveNow();
+    }, SAVE_DELAY_MS);
+  };
+
+  // Leaving the screen mid-typing must not lose the last edit.
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        void saveNow();
+      }
+    };
+  }, [saveNow]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,7 +101,7 @@ export default function InspectionDetailScreen() {
       if (row) {
         setTitle(row.title);
         setNotes(row.notes ?? "");
-        setDirty(false);
+        latest.current = { title: row.title, notes: row.notes ?? "" };
         const p = await getProject(row.projectId);
         setProject(p);
       }
@@ -112,70 +153,67 @@ export default function InspectionDetailScreen() {
     );
   }
 
-  const handleSave = async () => {
-    if (title.trim().length === 0) {
-      setTitleError("Title is required.");
-      return;
-    }
+  const setStatus = async (status: InspectionStatus, message: string) => {
     if (!inspection) return;
-    setSaving(true);
     try {
-      const updated = await updateInspection(inspection.id, {
-        title: title.trim(),
-        notes: notes.trim() || null,
-      });
+      const updated = await updateInspection(inspection.id, { status });
       setInspection(updated);
-      setDirty(false);
+      toast.show(message);
     } catch (e) {
       console.error(e);
-      Alert.alert("Couldn't save", String(e));
-    } finally {
-      setSaving(false);
+      Alert.alert("Couldn't update", "Something went wrong saving that. Please try again.");
     }
   };
 
-  const handleStatusChange = async (status: InspectionStatus) => {
+  /** Checks the form against its template, by name, then marks it complete. */
+  const handleComplete = async () => {
     if (!inspection) return;
+    setCompleting(true);
+    try {
+      // Make sure the title/notes typed a moment ago are saved first.
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        await saveNow();
+      }
 
-    // If marking complete, validate template-driven answers first
-    if (status === "completed" && inspection.templateId) {
-      try {
+      if (inspection.templateId) {
         const template = await getTemplate(inspection.templateId);
         if (template) {
-          const parsed = JSON.parse(template.schemaJson);
+          const schema = JSON.parse(template.schemaJson);
           const answers = await getAnswers(inspection.id);
-          const answersMap: Record<string, any> = {};
+          const answersMap: Record<string, unknown> = {};
           for (const a of answers) {
             if (a.valueText !== null) answersMap[a.fieldKey] = a.valueText;
             else if (a.valueNumber !== null) answersMap[a.fieldKey] = a.valueNumber;
             else if (a.valueJson !== null) answersMap[a.fieldKey] = JSON.parse(a.valueJson);
           }
-          const validate = buildValidator(parsed);
-          const errors = validate(answersMap);
-          if (Object.keys(errors).length > 0) {
-            Alert.alert("Validation failed", Object.entries(errors).map(([k, v]) => `${k}: ${v}`).join("\n"));
+          const errors = buildValidator(schema)(answersMap);
+          setFieldErrors(errors);
+          const problems = listProblems(schema, errors);
+          if (problems.length > 0) {
+            Alert.alert(
+              "Almost there",
+              `Please fix ${problems.length === 1 ? "this" : "these"} before finishing:\n\n${summarizeProblems(problems)}`,
+            );
             return;
           }
         }
-      } catch (e) {
-        console.error("Validation error", e);
-        Alert.alert("Validation error", "Could not validate the form. Please try again.");
-        return;
       }
+      setFieldErrors({});
+      await setStatus("completed", "Marked as complete ✓");
+    } catch (e) {
+      console.error("Completion check failed", e);
+      Alert.alert("Couldn't check the form", "Something went wrong. Please try again.");
+    } finally {
+      setCompleting(false);
     }
-
-    const updated = await updateInspection(inspection.id, { status });
-    setInspection(updated);
   };
 
-  // Phase 4: builds the report HTML (src/lib/report.ts + reportHtml.ts),
-  // hands it to expo-print to render a real PDF file, then hands THAT file
-  // to expo-sharing's native share sheet (Day 2 — Day 1 only opened the OS
-  // print dialog, which proved the PDF was real but wasn't yet "share this
-  // with someone"). Dynamic imports — same reasoning as every other
-  // native-package call in this codebase (src/lib/media.ts,
-  // attachmentUpload.ts): a module touching native code must not crash to
-  // *load* in the web preview, where it simply won't function (D-010).
+  // Builds the report HTML (src/lib/report.ts + reportHtml.ts), has expo-print
+  // render a real PDF, then hands that file to the native share sheet. Dynamic
+  // imports — a module touching native code must not crash to *load* in the web
+  // preview (D-010).
   const handleGenerateReport = async () => {
     if (!inspection) return;
     setGeneratingReport(true);
@@ -193,16 +231,16 @@ export default function InspectionDetailScreen() {
           dialogTitle: inspection.title,
         });
       } else {
-        // Sharing genuinely isn't available on this device/platform (not
-        // expected on a real phone, but this codebase never assumes a
-        // native capability exists without checking — same pattern as
-        // src/lib/media.ts's `{ error: "no-native" }` fallbacks) — the PDF
-        // still exists on disk, so say where rather than fail silently.
-        Alert.alert("Report generated", `Saved to: ${uri}`);
+        // Sharing isn't available on this device — the PDF still exists, so
+        // say where rather than fail silently.
+        Alert.alert("Report created", `Saved to: ${uri}`);
       }
     } catch (e) {
       console.error(e);
-      Alert.alert("Couldn't generate report", String(e));
+      Alert.alert(
+        "Couldn't create the report",
+        "Something went wrong making the PDF. Please try again.",
+      );
     } finally {
       setGeneratingReport(false);
     }
@@ -210,8 +248,8 @@ export default function InspectionDetailScreen() {
 
   const handleDelete = () => {
     if (!inspection) return;
-    Alert.alert("Delete this inspection?", "This can't be undone from the app.", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert("Delete this inspection?", "It will be removed from this phone and your account.", [
+      { text: "Keep it", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
@@ -223,10 +261,20 @@ export default function InspectionDetailScreen() {
     ]);
   };
 
+  const status = inspection?.status;
+  const saveLine =
+    saveState === "saving"
+      ? "Saving…"
+      : saveState === "saved"
+        ? "All changes saved ✓"
+        : saveState === "error"
+          ? "Couldn't save — check your entries and try again"
+          : "Your changes save automatically";
+
   return (
     <Screen>
       <ScrollView
-        contentContainerStyle={{ gap: theme.spacing.md }}
+        contentContainerStyle={{ gap: theme.spacing.md, paddingBottom: theme.spacing.xl }}
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing.sm }}>
@@ -243,79 +291,104 @@ export default function InspectionDetailScreen() {
           value={title}
           onChangeText={(text) => {
             setTitle(text);
-            setDirty(true);
             if (titleError) setTitleError(undefined);
+            scheduleSave(text, notes);
           }}
           error={titleError}
         />
 
         <Input
-          label="Notes"
+          label="General notes (optional)"
           value={notes}
           onChangeText={(text) => {
             setNotes(text);
-            setDirty(true);
+            scheduleSave(title, text);
           }}
           multiline
           numberOfLines={4}
           style={{ minHeight: 88, textAlignVertical: "top" }}
         />
 
-        {/* Dynamic form renderer (Phase 2) */}
-        {inspection?.templateId ? (
-          <FormRenderer inspectionId={inspection.id} templateId={inspection.templateId} />
-        ) : null}
+        <Text variant="caption" muted accessibilityLiveRegion="polite">
+          {saveLine}
+        </Text>
 
-        <View style={{ gap: theme.spacing.xs }}>
-          <Text variant="label" muted>
-            Status
+        {/* Dynamic form renderer: the questions come from the template */}
+        {inspection?.templateId ? (
+          <FormRenderer
+            inspectionId={inspection.id}
+            templateId={inspection.templateId}
+            errors={fieldErrors}
+          />
+        ) : (
+          <Text muted>
+            This inspection has no checklist. Use the notes above, or create a new inspection and
+            pick a template.
           </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing.xs }}>
-            {INSPECTION_STATUSES.map((status) => {
-              const active = inspection?.status === status;
-              return (
-                <Pressable
-                  key={status}
-                  onPress={() => handleStatusChange(status)}
-                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                  accessibilityRole="button"
-                  accessibilityLabel={STATUS_LABEL[status]}
-                  accessibilityState={{ selected: active }}
-                  style={{
-                    paddingHorizontal: theme.spacing.sm,
-                    paddingVertical: theme.spacing.xs,
-                    borderRadius: theme.radius.lg,
-                    borderWidth: 1,
-                    borderColor: active ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: active ? theme.colors.primary + "22" : theme.colors.surface,
-                  }}
-                >
-                  <Text
-                    variant="caption"
-                    style={{ color: active ? theme.colors.primary : theme.colors.textMuted }}
-                  >
-                    {STATUS_LABEL[status]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+        )}
+
+        {/* Finishing: one obvious next step instead of four status chips */}
+        <View
+          style={{
+            gap: theme.spacing.sm,
+            paddingTop: theme.spacing.md,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.border,
+          }}
+        >
+          <Text variant="subtitle">Finish up</Text>
+
+          {status === "completed" ? (
+            <>
+              <Text muted>This inspection is marked complete.</Text>
+              <Button
+                label="Mark as submitted"
+                onPress={() => setStatus("submitted", "Marked as submitted ✓")}
+              />
+              <Button
+                label="Reopen to make changes"
+                variant="secondary"
+                onPress={() => setStatus("in_progress", "Reopened")}
+              />
+            </>
+          ) : status === "submitted" ? (
+            <>
+              <Text muted>This inspection has been submitted.</Text>
+              <Button
+                label="Reopen to make changes"
+                variant="secondary"
+                onPress={() => setStatus("in_progress", "Reopened")}
+              />
+            </>
+          ) : (
+            <>
+              <Text muted>
+                When every answer is in, mark it complete. We&apos;ll point out anything that&apos;s
+                missing.
+              </Text>
+              <Button label="Mark as complete" onPress={handleComplete} loading={completing} />
+            </>
+          )}
+
+          <Text muted style={{ marginTop: theme.spacing.sm }}>
+            Make a PDF of this inspection to send or save.
+          </Text>
+          <Button
+            label="Create PDF report"
+            variant="secondary"
+            onPress={handleGenerateReport}
+            loading={generatingReport}
+          />
         </View>
 
         {inspection ? (
           <Text variant="caption" muted>
-            Created {formatTimestamp(inspection.createdAt)} · Updated{" "}
+            Started {formatTimestamp(inspection.createdAt)} · Last changed{" "}
             {formatTimestamp(inspection.updatedAt)}
           </Text>
         ) : null}
 
-        <Button label="Save Changes" onPress={handleSave} loading={saving} disabled={!dirty} />
-        <Button
-          label="Generate Report"
-          onPress={handleGenerateReport}
-          loading={generatingReport}
-        />
-        <Button label="Delete Inspection" variant="danger" onPress={handleDelete} />
+        <Button label="Delete inspection" variant="danger" onPress={handleDelete} />
       </ScrollView>
     </Screen>
   );

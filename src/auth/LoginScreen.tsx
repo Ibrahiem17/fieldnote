@@ -11,6 +11,7 @@ import { View } from "react-native";
 import { Screen, Text, Input, Button } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { useAuth } from "./AuthProvider";
+import { friendlyAuthError } from "./friendlyError";
 
 export default function LoginScreen() {
   const theme = useTheme();
@@ -28,7 +29,7 @@ export default function LoginScreen() {
     setInfo(null);
 
     if (!email.trim() || !password) {
-      setError("Email and password are both required.");
+      setError("Enter your email and password to continue.");
       return;
     }
 
@@ -37,7 +38,7 @@ export default function LoginScreen() {
     setSubmitting(false);
 
     if (result.error) {
-      setError(result.error);
+      setError(friendlyAuthError(result.error));
       return;
     }
 
@@ -47,7 +48,7 @@ export default function LoginScreen() {
       // signUp() comment. Either way there's nothing more to do here:
       // AuthProvider's onAuthStateChange listener picks up a real session
       // automatically the moment one exists.
-      setInfo("Account created. If email confirmation is required, check your inbox, then sign in.");
+      setInfo("Account created. If we asked you to confirm your email, open the message we sent, tap the link, then sign in here.");
       setMode("sign-in");
     }
   };
@@ -55,10 +56,11 @@ export default function LoginScreen() {
   return (
     <Screen>
       <View style={{ gap: theme.spacing.md, justifyContent: "center", flex: 1 }}>
-        <Text variant="title">{mode === "sign-in" ? "Sign in" : "Create account"}</Text>
+        <Text variant="title">{mode === "sign-in" ? "Sign in" : "Create your account"}</Text>
         <Text variant="caption" muted>
-          Fieldnote syncs your inspections to your own account — sign in to enable that. The app
-          still works fully offline either way.
+          Signing in keeps your inspections backed up to your own account. You need an internet
+          connection the first time you sign in; after that Fieldnote works without a signal and
+          uploads your work when you&apos;re back online.
         </Text>
 
         <Input

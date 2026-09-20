@@ -1,8 +1,8 @@
 // src/app/(tabs)/settings.tsx  →  route "/settings"
 //
-// Dev tools live here for Phase 1: reseeding the database (Section 3.5.3,
-// "you'll use it constantly") and a quick read of what's actually in the
-// database right now, useful when eyeballing TC-11 and TC-17.
+// Account, uploading, and (in development builds only) developer tools. The
+// wording is for a person using the app, not a developer: "waiting to upload",
+// not "outbox rows".
 
 import { useCallback, useState } from "react";
 import { Alert, ScrollView, View } from "react-native";
@@ -26,6 +26,24 @@ import { runSync, type SyncResult } from "@/lib/sync";
 import { listConflicts } from "@/repositories/conflicts";
 import { resolveConflictChoice } from "@/lib/conflictResolutionActions";
 import type { Conflict } from "@/db/schema";
+
+/** One friendly sentence for what "Upload now" just did. */
+function describeSync(result: SyncResult): string {
+  if (result.push.offline) {
+    return "No connection right now. Your work is safe on this phone and will upload when you're back online.";
+  }
+  if (result.push.failed > 0) {
+    return `${result.push.failed} couldn't upload yet. We'll keep trying — check your connection.`;
+  }
+  const sent = result.push.synced;
+  const received = result.pull.merged;
+  if (sent === 0 && received === 0) return "You're all caught up ✓";
+  const parts: string[] = [];
+  if (sent > 0) parts.push(`uploaded ${sent} ${sent === 1 ? "change" : "changes"}`);
+  if (received > 0) parts.push(`received ${received} ${received === 1 ? "update" : "updates"} from your account`);
+  const sentence = parts.join(" and ");
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1) + " ✓";
+}
 
 export default function SettingsScreen() {
   const theme = useTheme();
@@ -118,7 +136,7 @@ export default function SettingsScreen() {
           <Text style={{ marginTop: theme.spacing.sm }}>{session?.user.email}</Text>
           <Text variant="caption" muted style={{ marginBottom: theme.spacing.sm }}>
             Signing out clears your session only — every inspection already on this phone stays
-            right here (plan Section 3.1.3).
+            right here.
           </Text>
           <Button
             label="Sign Out"
@@ -137,44 +155,54 @@ export default function SettingsScreen() {
 
         <Card>
           <Text variant="label" muted>
-            Current database
+            On this phone
           </Text>
           <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.xs }}>
-            <Text>Projects: {counts.projects}</Text>
-            <Text>Inspections: {counts.inspections}</Text>
-            <Text>Outbox rows: {counts.outbox}</Text>
+            <Text>
+              {counts.projects} {counts.projects === 1 ? "project" : "projects"}
+            </Text>
+            <Text>
+              {counts.inspections} {counts.inspections === 1 ? "inspection" : "inspections"}
+            </Text>
+            {__DEV__ ? <Text variant="caption" muted>Outbox rows: {counts.outbox}</Text> : null}
           </View>
         </Card>
 
         <Card>
           <Text variant="label" muted>
-            Sync
+            Uploading
           </Text>
           <Text
             variant="caption"
             muted
             style={{ marginTop: theme.spacing.xs, marginBottom: theme.spacing.sm }}
           >
-            Also runs on its own when your connection returns or you reopen the app — this button is
-            for right now, not the only way it happens.
+            Your work saves on this phone first, then uploads to your account by itself whenever you
+            have a signal. Use the button to upload right now.
           </Text>
 
           <View
             style={{ flexDirection: "row", gap: theme.spacing.sm, marginBottom: theme.spacing.sm }}
           >
-            <Text variant="caption">{outboxSummary.pending} pending</Text>
+            <Text variant="caption">
+              {outboxSummary.pending === 0
+                ? "Everything is uploaded ✓"
+                : `${outboxSummary.pending} waiting to upload`}
+            </Text>
             <Text
               variant="caption"
               style={outboxSummary.deadLettered > 0 ? { color: theme.colors.danger } : undefined}
             >
-              {outboxSummary.deadLettered} failed
+              {outboxSummary.deadLettered > 0
+                ? `${outboxSummary.deadLettered} couldn't upload`
+                : ""}
             </Text>
           </View>
 
           <View style={{ flexDirection: "row", gap: theme.spacing.sm }}>
             <View style={{ flex: 1 }}>
               <Button
-                label="Sync Now"
+                label="Upload now"
                 loading={syncing}
                 onPress={async () => {
                   setSyncing(true);
@@ -194,7 +222,7 @@ export default function SettingsScreen() {
             {outboxSummary.deadLettered > 0 ? (
               <View style={{ flex: 1 }}>
                 <Button
-                  label="Retry Failed"
+                  label="Try again"
                   variant="secondary"
                   loading={retrying}
                   onPress={async () => {
@@ -217,35 +245,31 @@ export default function SettingsScreen() {
 
           {lastSync ? (
             <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.xs }}>
-              <Text variant="caption">
-                Pushed: {lastSync.push.synced} synced, {lastSync.push.failed} failed. Pulled:{" "}
-                {lastSync.pull.merged} merged
-                {lastSync.pull.autoResolved > 0
-                  ? `, ${lastSync.pull.autoResolved} auto-resolved`
-                  : ""}
-                {lastSync.pull.flaggedForManualResolution > 0
-                  ? `, ${lastSync.pull.flaggedForManualResolution} need your input below`
-                  : ""}
-                .
-              </Text>
-              {lastSync.push.errors.map((e, i) => (
-                <Text key={i} variant="caption" style={{ color: theme.colors.danger }}>
-                  {e.entityType} {e.entityId.slice(0, 8)}: {e.error}
+              <Text variant="caption">{describeSync(lastSync)}</Text>
+              {lastSync.pull.flaggedForManualResolution > 0 ? (
+                <Text variant="caption">
+                  {lastSync.pull.flaggedForManualResolution} need your decision below.
                 </Text>
-              ))}
+              ) : null}
+              {__DEV__
+                ? lastSync.push.errors.map((e, i) => (
+                    <Text key={i} variant="caption" style={{ color: theme.colors.danger }}>
+                      {e.entityType} {e.entityId.slice(0, 8)}: {e.error}
+                    </Text>
+                  ))
+                : null}
             </View>
           ) : null}
 
           {lastRetry ? (
             <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.xs }}>
               <Text variant="caption">
-                Retry: {lastRetry.synced} synced, {lastRetry.failed} still failing.
+                {lastRetry.offline
+                  ? "No connection right now — we'll try again when you're back online."
+                  : lastRetry.failed === 0
+                    ? "All caught up ✓"
+                    : `${lastRetry.failed} still couldn't upload. Check your connection and try again.`}
               </Text>
-              {lastRetry.errors.map((e, i) => (
-                <Text key={i} variant="caption" style={{ color: theme.colors.danger }}>
-                  {e.entityType} {e.entityId.slice(0, 8)}: {e.error}
-                </Text>
-              ))}
             </View>
           ) : null}
         </Card>
@@ -306,6 +330,7 @@ export default function SettingsScreen() {
           </Card>
         ) : null}
 
+        {__DEV__ ? (
         <Card>
           <Text variant="label" muted>
             Developer tools
@@ -324,6 +349,7 @@ export default function SettingsScreen() {
             onPress={handleReseed}
           />
         </Card>
+        ) : null}
 
         <Card>
           <Text variant="label" muted>

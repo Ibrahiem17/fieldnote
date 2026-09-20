@@ -189,7 +189,7 @@ export default function InspectionsScreen() {
               message={
                 projectFilter !== "all" || statusFilter !== "all"
                   ? "Nothing matches these filters."
-                  : "Create your first inspection, or seed the database from Settings."
+                  : "Tap New Inspection below to start your first one."
               }
             />
           }

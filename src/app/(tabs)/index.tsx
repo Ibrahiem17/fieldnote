@@ -88,8 +88,20 @@ export default function ProjectsScreen() {
           ListEmptyComponent={
             <EmptyState
               title="No projects yet"
-              message="Tap New Project below to add your first one."
-            />
+              message={"A project is a job or a site. Create one, then add inspections to it."}
+            >
+              <View style={{ gap: theme.spacing.xs, alignSelf: "stretch" }}>
+                <Text variant="label" muted>
+                  How Fieldnote works
+                </Text>
+                <Text muted>1. Tap New Project and name the job.</Text>
+                <Text muted>2. Add an inspection and answer the questions — photos, location and signature included.</Text>
+                <Text muted>3. Create a PDF report to send or save.</Text>
+                <Text variant="caption" muted style={{ marginTop: theme.spacing.xs }}>
+                  No signal? No problem — everything saves on this phone and uploads later.
+                </Text>
+              </View>
+            </EmptyState>
           }
         />
       )}

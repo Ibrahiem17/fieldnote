@@ -54,3 +54,8 @@ inspections; the plan's protocol wants 5,000).
 
 - **Offline behaviour (D-042):** with airplane mode on, open and close the app several times over a few minutes, then check Settings → Sync: **pending** should stay at the number of queued items and **failed** must stay **0** (before the fix, ~8 foreground events dead-lettered everything). Turn airplane mode off → items should send once and reach Supabase.
 - Take a photo while online, then drop the signal mid-sync: the photo should stay pending, not become "Not signed in".
+| 2026-09-20 | "Add photo" seemed broken | **Diagnosed: works, but silent for several seconds** | Camera (`com.sec.android.app.camera`) took focus after the tap (confirmed with `dumpsys window`); dev build lazily loads camera modules from Metro with no on-screen change. Fixed with a busy button + module preloading (D-043). Not re-timed after the fix. |
+| 2026-09-20 | Cancelling the camera saves nothing (D-038 fix) | **Pass** | Attachments on the inspection: 0 after tapping Add photo then Back. |
+| 2026-09-20 | Fresh-install templates (D-040) | **Pass** | Phone gained "Site Safety Walk" (3 templates) with no reseed. |
+| 2026-09-20 | Inspection screen: autosave line, "Finish up", Mark as complete | **Pass (happy path)** | Screen renders without JS errors; Mark as complete → green toast "Marked as complete ✓" and the section switched to Mark as submitted / Reopen. The error path (missing required answer) not yet exercised on the phone. |
+| 2026-09-20 | Settings wording + "Upload now" | **Pass** | "2 waiting to upload" → tap → "Uploaded 2 changes and received 1 update from your account ✓", "Everything is uploaded ✓", outbox 2 → 0. |

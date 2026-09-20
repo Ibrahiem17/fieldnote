@@ -1630,3 +1630,30 @@ Before: any failure other than "permission denied" saved `{ latitude: 12.34, lon
 
 ### `src/lib/syncEngine.integration.test.ts`
 `jest.fn()` / `mockPush.mockResolvedValue(...)` — a "mock function" is a stand-in you control: here it plays the network, returning whatever result each test needs. `mockReset()` clears what it has recorded. `expect(mockPush).toHaveBeenCalledTimes(1)` — assert it was called exactly once (proving the second entry wasn't even tried). `for (let i = 0; i < MAX_ATTEMPTS * 3; i++) await drainOutbox();` — run 24 sync attempts back to back to prove none of them dead-letters anything while offline.
+
+### `src/components/Toast.tsx` — a message that fades away (D-043)
+`createContext(...)` / `useContext(ToastContext)` — a "context" is a shared value any component below the provider can read without passing it down by hand. `useToast()` hands back `{ show }`, so any screen can call `toast.show("Photo added")`.
+`setTimeout(() => setToast(null), 2600)` — hide the message after 2.6 seconds; the previous timer is cleared first (`clearTimeout`) so a second toast doesn't vanish early.
+`entering={FadeInDown} exiting={FadeOutDown}` — animation presets from the animation library. `pointerEvents="none"` — taps pass straight through the toast, so it never blocks a button. `position: "absolute"` — placed over the screen at a fixed spot instead of taking up layout space.
+
+### `src/components/BusyButton.tsx`
+`const [busy, setBusy] = useState(false);` — remembers "is the action running?". On press: `if (busy) return;` ignores repeat taps; `setBusy(true)`; `await onPress()`; then `finally { setBusy(false); }` — `finally` runs whether the action worked or threw, so the button can never get stuck spinning. `label={busy ? busyLabel : label}` swaps the text while it runs.
+
+### `src/lib/location.ts`
+`Math.abs(gps.latitude).toFixed(4)` — drop the minus sign and keep 4 decimals; `gps.latitude >= 0 ? "N" : "S"` picks the hemisphere letter instead. `Number.isFinite(x)` — true only for real numbers (rejects `NaN`/`Infinity`). `value is GpsValue` in `isGpsValue` — a "type guard": tells TypeScript "if this returns true, treat the value as a GPS reading".
+
+### `src/lib/completion.ts`
+`listProblems` walks the template's sections and fields *in order*, and for each field with an error builds `{ key, label, message }` — so the list reads in the order the person sees the form. Errors for keys the template doesn't know are appended rather than dropped. `summarizeProblems` turns them into "• Roof condition — needs an answer" lines; `"Required"` becomes "needs an answer" because inside a sentence a bare "Required" reads like a demand.
+
+### `src/app/inspections/[id].tsx` — autosave
+`const saveTimer = useRef<...>(null);` — a `ref` is a box that survives re-renders without causing one; here it holds the pending timer. `scheduleSave` clears any earlier timer and starts a new 700 ms one, so typing "Roof" saves once after you pause, not four times. `useEffect(() => () => { ... saveNow(); }, [saveNow])` — the function returned from an effect is its *cleanup*, which runs when you leave the screen: if a save was still waiting, it runs immediately so the last edit isn't lost. `latest.current = { title, notes }` keeps the newest values where the timer can read them (a timer set earlier would otherwise see stale values).
+`const problems = listProblems(schema, errors); if (problems.length > 0) { Alert.alert(...); return; }` — stop and explain before marking complete. `setFieldErrors(errors)` feeds the red messages under each field.
+
+### `src/components/FormRenderer.tsx` — the error line
+`const FieldBody = React.memo(...)` is the original field drawing code, renamed; the new `FieldComponent` wraps it: `React.ComponentProps<typeof FieldBody> & { error?: string }` means "all of FieldBody's props, plus an optional error". `const { error, ...bodyProps } = props;` splits the error off and passes the rest through. `error === "Required" && answered` hides a stale "Required" once the field has a value.
+
+### `src/auth/friendlyError.ts`
+`message.includes("invalid login credentials")` after `.toLowerCase()` — a case-insensitive "does the server's text contain this phrase". `/password should be at least (\d+)/.exec(message)` — a regular expression that captures the number in that sentence so the friendly message can repeat it.
+
+### `src/app/(tabs)/settings.tsx`
+`{__DEV__ ? (...) : null}` — `__DEV__` is `true` only in development builds and `false` in a release build, so the developer tools simply aren't drawn for real users. `function describeSync(result)` builds one readable sentence from the numbers (`uploaded 2 changes and received 1 update from your account`), including singular/plural and the offline case.

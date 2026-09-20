@@ -52,7 +52,7 @@ export default function NewInspectionScreen() {
       return;
     }
     if (!projectId) {
-      Alert.alert("Pick a project", "Every inspection needs a project.");
+      Alert.alert("Choose a project", "Tap the project this inspection belongs to.");
       return;
     }
 
@@ -95,16 +95,29 @@ export default function NewInspectionScreen() {
           <Text variant="label" muted>
             Project
           </Text>
-          <ChipPicker
-            options={projects.map((p) => ({ key: p.id, label: p.name }))}
-            selected={projectId}
-            onSelect={setProjectId}
-          />
+          {projects.length === 0 ? (
+            <View style={{ gap: theme.spacing.sm }}>
+              <Text muted>
+                An inspection belongs to a project (a job or a site). You don&apos;t have one yet.
+              </Text>
+              <Button
+                label="Create a project first"
+                variant="secondary"
+                onPress={() => router.replace("/projects/new")}
+              />
+            </View>
+          ) : (
+            <ChipPicker
+              options={projects.map((p) => ({ key: p.id, label: p.name }))}
+              selected={projectId}
+              onSelect={setProjectId}
+            />
+          )}
         </View>
 
         <View style={{ gap: theme.spacing.xs }}>
           <Text variant="label" muted>
-            Template (optional)
+            Type of inspection
           </Text>
           <ChipPicker
             options={templates.map((t) => ({ key: t.id, label: t.name }))}
@@ -120,7 +133,7 @@ export default function NewInspectionScreen() {
           placeholder="e.g. J. Chen"
         />
 
-        <Button label="Create Inspection" onPress={handleSave} loading={saving} />
+        <Button label="Start inspection" onPress={handleSave} loading={saving} />
       </ScrollView>
     </Screen>
   );

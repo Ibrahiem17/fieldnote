@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Pressable, Alert, Linking, Image } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { Text, Input, Button } from "@/components";
+import { Text, Input, Button, BusyButton, useToast } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { getAnswers, saveAnswer } from "@/repositories/answers";
 import {
@@ -17,7 +17,8 @@ import {
   deleteAttachment,
 } from "@/repositories/attachments";
 import { getTemplate } from "@/repositories/templates";
-import { takePhotoAndCompress, getLocationWithTimeout } from "@/lib/media";
+import { takePhotoAndCompress, getLocationWithTimeout, preloadMediaModules } from "@/lib/media";
+import { isGpsValue, formatCoordinates, formatAccuracy, mapsUrl } from "@/lib/location";
 import SignaturePad from "@/components/SignaturePad";
 import { PhotoViewer } from "@/components/PhotoViewer";
 import { isFieldVisible } from "@/lib/visibility";
@@ -99,7 +100,7 @@ function NumberField({
 }
 
 // Move FieldComponent outside the main function so it can be memoized reliably.
-const FieldComponent = React.memo(function FieldComponent(props: {
+const FieldBody = React.memo(function FieldBody(props: {
   field: any;
   value: any;
   inspectionId: string;
@@ -124,6 +125,7 @@ const FieldComponent = React.memo(function FieldComponent(props: {
   } = props;
   const v = value ?? "";
   const theme = useTheme();
+  const toast = useToast();
 
   switch (field.type) {
     case "text":
@@ -251,8 +253,9 @@ const FieldComponent = React.memo(function FieldComponent(props: {
       return (
         <View style={{ gap: theme.spacing.xs }}>
           <Text variant="label">{field.label}</Text>
-          <Button
+          <BusyButton
             label="Add photo"
+            busyLabel="Opening camera…"
             onPress={async () => {
               try {
                 const res = await takePhotoAndCompress(inspectionId, field.key);
@@ -295,6 +298,7 @@ const FieldComponent = React.memo(function FieldComponent(props: {
                 });
                 // store thumbnail path only in the UI object for display
                 (att as any).thumbLocalUri = r.thumbLocalUri;
+                toast.show("Photo added");
                 setAttachments((prev) => ({
                   ...prev,
                   [field.key]: (prev[field.key] ?? []).concat(att),
@@ -380,8 +384,9 @@ const FieldComponent = React.memo(function FieldComponent(props: {
       return (
         <View style={{ gap: theme.spacing.xs }}>
           <Text variant="label">{field.label}</Text>
-          <Button
-            label="Capture location"
+          <BusyButton
+            label={isGpsValue(value) ? "Update location" : "Capture location"}
+            busyLabel="Getting location…"
             onPress={async () => {
               try {
                 const pos = await getLocationWithTimeout(10000);
@@ -421,12 +426,28 @@ const FieldComponent = React.memo(function FieldComponent(props: {
                   longitude: p.longitude,
                   accuracy: p.accuracy,
                 });
+                toast.show("Location saved");
               } catch (e) {
                 console.error(e);
               }
             }}
           />
-          {value ? <Text>{JSON.stringify(value)}</Text> : null}
+          {isGpsValue(value) ? (
+            <View style={{ gap: theme.spacing.xs }}>
+              <Text>
+                {`📍 ${formatCoordinates(value)}${formatAccuracy(value) ? `  (${formatAccuracy(value)})` : ""}`}
+              </Text>
+              <Button
+                label="Open in Maps"
+                variant="secondary"
+                onPress={() => {
+                  Linking.openURL(mapsUrl(value)).catch(() =>
+                    Alert.alert("Couldn't open Maps", "No maps app could open this location."),
+                  );
+                }}
+              />
+            </View>
+          ) : null}
         </View>
       );
     case "signature":
@@ -434,7 +455,7 @@ const FieldComponent = React.memo(function FieldComponent(props: {
         <View style={{ gap: theme.spacing.xs }}>
           <Text variant="label">{field.label}</Text>
           <Button
-            label="Capture signature"
+            label={(attachmentsForField ?? []).length > 0 ? "Sign again" : "Add signature"}
             onPress={() => {
               // open modal with SignaturePad; the pad will call back with base64
               onOpenSignature(field.key);
@@ -442,9 +463,27 @@ const FieldComponent = React.memo(function FieldComponent(props: {
           />
           {(attachmentsForField ?? []).map((a) => (
             <View key={a.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text>
-                {a.localUri ?? (a.remoteUrl ? `(synced from another device: ${a.remoteUrl})` : "(uploading…)")}
-              </Text>
+              {a.localUri ? (
+                <Image
+                  source={{ uri: a.localUri }}
+                  resizeMode="contain"
+                  accessibilityLabel="Your signature"
+                  // Always white: the signature is dark strokes on transparent,
+                  // which would vanish on a dark theme background.
+                  style={{
+                    width: 200,
+                    height: 80,
+                    backgroundColor: "#FFFFFF",
+                    borderRadius: 6,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                  }}
+                />
+              ) : (
+                <Text variant="caption" muted>
+                  {a.remoteUrl ? "Signed on another device" : "Uploading…"}
+                </Text>
+              )}
               <Button
                 label="Delete"
                 variant="danger"
@@ -473,19 +512,53 @@ const FieldComponent = React.memo(function FieldComponent(props: {
   }
 });
 
+/**
+ * Wraps a field with a red message underneath when the completion check found
+ * a problem with it. A "Required" message disappears the moment the field has
+ * an answer, so a person isn't left looking at a stale error.
+ */
+const FieldComponent = React.memo(function FieldComponent(
+  props: React.ComponentProps<typeof FieldBody> & { error?: string },
+) {
+  const { error, ...bodyProps } = props;
+  const theme = useTheme();
+  const v = bodyProps.value;
+  const answered = v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0);
+  const shown = error && !(error === "Required" && answered) ? error : null;
+  return (
+    <View style={{ gap: theme.spacing.xs }}>
+      <FieldBody {...bodyProps} />
+      {shown ? (
+        <Text variant="caption" style={{ color: theme.colors.danger }} accessibilityLiveRegion="polite">
+          {shown}
+        </Text>
+      ) : null}
+    </View>
+  );
+});
+
 export default function FormRenderer({
   inspectionId,
   templateId,
+  errors,
 }: {
   inspectionId: string;
   templateId: string | null;
+  /** Field key → message, from the completion check (shown under each field). */
+  errors?: Record<string, string>;
 }) {
   const theme = useTheme();
+  const toast = useToast();
   const [schema, setSchema] = useState<TemplateSchema | null>(null);
   const [answersMap, setAnswersMap] = useState<Record<string, any>>({});
   const [attachments, setAttachments] = useState<Record<string, any[]>>({});
   const [signatureModal, setSignatureModal] = useState<{ fieldKey: string } | null>(null);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
+
+  // Warm up the camera/location/signature modules so the first tap is quick.
+  useEffect(() => {
+    preloadMediaModules();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -627,6 +700,7 @@ export default function FormRenderer({
                     attachmentsForField={attachments[field.key] ?? []}
                     onScheduleSave={scheduleSave}
                     onImmediateSave={immediateSave}
+                    error={errors?.[field.key]}
                     setAttachments={setAttachments}
                     onOpenSignature={(fieldKey) => setSignatureModal({ fieldKey })}
                     onOpenPhoto={setViewerUri}
@@ -680,6 +754,7 @@ export default function FormRenderer({
                 ...prev,
                 [signatureModal.fieldKey]: (prev[signatureModal.fieldKey] ?? []).concat(att),
               }));
+              toast.show("Signature saved");
             } catch (err) {
               console.error(err);
             } finally {

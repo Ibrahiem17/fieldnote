@@ -13,6 +13,24 @@ export type PhotoResult = {
   thumbLocalUri?: string;
 };
 
+/**
+ * Starts loading the camera / location / file / signature modules in the
+ * background. They're imported on demand (so the web preview never crashes
+ * loading them), which in a development build means the FIRST tap on "Add
+ * photo" waited several seconds for them to arrive with nothing on screen.
+ * Calling this when a form opens makes that first tap fast. Harmless if any
+ * import fails — the real call handles its own errors.
+ */
+export function preloadMediaModules(): void {
+  void Promise.allSettled([
+    import("expo-image-picker"),
+    import("expo-image-manipulator"),
+    import("expo-file-system"),
+    import("expo-location"),
+    import("react-native-signature-canvas"),
+  ]);
+}
+
 export async function takePhotoAndCompress(
   inspectionId: string,
   fieldKey: string,
