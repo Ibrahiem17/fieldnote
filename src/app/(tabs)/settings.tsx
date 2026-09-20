@@ -323,24 +323,6 @@ export default function SettingsScreen() {
             loading={reseeding}
             onPress={handleReseed}
           />
-          {/* Dev tool (docs/DESIGN.md D-039): the app has no screen for creating a
-              project, and the seed writes no outbox entries, so seeded projects
-              never reach the server. This uses the real createProject — which
-              DOES write an outbox entry — so sync can be tested end to end. */}
-          <View style={{ marginTop: theme.spacing.sm }}>
-            <Button
-              label="Create test project (queues sync)"
-              onPress={async () => {
-                const { createProject } = await import("@/repositories/projects");
-                const p = await createProject({
-                  name: `Sync Test Project ${new Date().toLocaleTimeString()}`,
-                  clientName: "Device Test",
-                  address: "1 Test Street",
-                });
-                Alert.alert("Created", `Project "${p.name}" created and queued for sync.`);
-              }}
-            />
-          </View>
         </Card>
 
         <Card>

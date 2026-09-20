@@ -41,5 +41,6 @@ inspections; the plan's protocol wants 5,000).
 
 ## Resume checklist (when the phone is back)
 1. Reconnect: wireless debugging on → `adb mdns services` → `adb connect <ip:port>` → `adb reverse tcp:8081 tcp:8081` → start Metro (`npx expo start --dev-client --port 8081`) → force-stop + relaunch the dev client via `fieldnote://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081`.
-2. The phone already holds "Airplane Sync Test" (created offline, in "Sync Test Project 21:10:14"). Tap Settings → Sync Now (online) → I read the phone DB (outbox should be 0, inspection `synced`) → tester confirms exactly ONE "Airplane Sync Test" in Supabase → inspections (+ answers).
-3. Then, still untested on the device: photo upload path, Generate Report (PDF render + share sheet), deep link with the app fully closed, performance, gesture feel, screen reader.
+2. NEW: the Projects tab now has a **New Project** button (screen at `/projects/new`, added after this checklist's first draft) and the temporary Settings dev button was removed — first on-device run of that screen still pending: create a project, confirm it appears in the list, opens, and shows in Supabase → projects after Sync Now.
+3. The phone already holds "Airplane Sync Test" (created offline, in "Sync Test Project 21:10:14"). Tap Settings → Sync Now (online) → I read the phone DB (outbox should be 0, inspection `synced`) → tester confirms exactly ONE "Airplane Sync Test" in Supabase → inspections (+ answers).
+4. Then, still untested on the device: photo upload path, Generate Report (PDF render + share sheet), deep link with the app fully closed, performance, gesture feel, screen reader.

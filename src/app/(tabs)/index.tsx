@@ -1,9 +1,9 @@
 // src/app/(tabs)/index.tsx  →  route "/"
 //
-// The Projects tab. Phase 1 treats projects as read-only (seeded data) —
-// only inspections get full create/edit/delete this phase (Section 5.1).
-// Tapping a project opens its detail screen, which lists that project's
-// inspections filtered.
+// The Projects tab. Projects can be created here ("New Project" opens
+// /projects/new; before that screen existed they only came from the dev
+// seed, which can't sync — docs/DESIGN.md D-039). Tapping a project opens
+// its detail screen, which lists that project's inspections filtered.
 
 import { useCallback, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
@@ -88,11 +88,15 @@ export default function ProjectsScreen() {
           ListEmptyComponent={
             <EmptyState
               title="No projects yet"
-              message="Seed the database from Settings to get started."
+              message="Tap New Project below to add your first one."
             />
           }
         />
       )}
+
+      <View style={{ padding: theme.spacing.md }}>
+        <Button label="New Project" onPress={() => router.push("/projects/new")} />
+      </View>
     </Screen>
   );
 }

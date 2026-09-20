@@ -260,3 +260,7 @@ The plan for sync had been checked carefully: sending the same message twice doe
 The lesson is the one that keeps recurring: a check on the parts isn't a check on the whole. The fix gives each template a permanent unique code, puts the same two templates on the server, and adds a test that fails if the app's list and the server's list ever stop matching.
 
 **Also: pressing "cancel" on the camera used to save a fake photo.** Backing out of the camera looked, to the code, the same as "something went wrong", and the code's answer to "something went wrong" was to save a pretend picture. Now backing out does nothing, and a real failure says so.
+
+## "New Project" — the button that should have existed all along
+
+The app could hold projects and could put inspections inside them, but there was no way for a person to make a project. The only projects that ever appeared came from a developer tool that fills the phone with pretend data — and pretend data is deliberately never sent to the server. So on a brand-new phone, everything an inspector made sat inside a project the office had never heard of, and could never be delivered. It was invisible for as long as testing only ever used the pretend data. The fix is the obvious one: a "New Project" button with a small form (name required; client and address optional). It's added late, during a period when new features were supposed to stop, because without it the app's central promise — make it in the field, it reaches the office — couldn't be kept.

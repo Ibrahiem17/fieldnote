@@ -137,6 +137,10 @@ const AppNavigator = () => (
       name="inspections/new"
       options={{ headerShown: true, title: "New Inspection", presentation: "modal" }}
     />
+    <Stack.Screen
+      name="projects/new"
+      options={{ headerShown: true, title: "New Project", presentation: "modal" }}
+    />
   </Stack>
 );
 

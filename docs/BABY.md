@@ -1571,3 +1571,15 @@ Before: any failure other than "permission denied" saved `{ latitude: 12.34, lon
 
 ### `src/lib/reportHtml.test.ts`
 `function makeData(overrides = {})` — builds a fake report with sensible defaults; each test overrides only what it cares about (`...overrides` copies extra fields over the defaults). `expect(html).toContain("Not recorded")` — assert the text appears in the output. `expect(html).not.toContain("<script>alert")` — assert dangerous text does NOT appear raw. `toMatch(/class="field-value not-recorded">Not recorded</)` — assert against a pattern (a regular expression) rather than an exact string.
+
+### `src/app/projects/new.tsx` — the New Project screen (D-039)
+`export default function NewProjectScreen()` — a screen is just a function that returns what to draw; Expo Router turns the file's path (`projects/new.tsx`) into the address `/projects/new` automatically.
+`const [name, setName] = useState("");` — a piece of memory the screen keeps: `name` is the current text, `setName` replaces it (and redraws the screen). Three of these hold what's typed; `nameError` holds a message or nothing (`undefined`); `saving` is true while the save runs so the button shows a spinner.
+`if (name.trim().length === 0) { setNameError("Name is required."); return; }` — `trim()` chops spaces off both ends, so a name of just spaces counts as empty; the message is shown and the function stops (`return`), so nothing is saved.
+`clientName: clientName.trim() || null` — `||` means "or": if the trimmed text is empty (falsy), use `null` (nothing) instead of an empty string, so the database holds "no client" rather than a blank one.
+`await createProject({...})` — the same function everything else uses; it saves the project and adds a note to the outbox in one step. `router.replace(`/projects/${project.id}`)` — go to the new project's page, *replacing* this form in the back-history so "back" doesn't return to an empty form.
+`try { ... } catch (e) { Alert.alert("Couldn't save", ...) } finally { setSaving(false); }` — if saving fails, tell the person (never pretend it worked); `finally` always runs, so the spinner stops either way.
+`keyboardShouldPersistTaps="handled"` — lets you tap the Create button while the keyboard is open without the first tap only closing the keyboard.
+
+### `src/app/_layout.tsx` and `(tabs)/index.tsx`
+`<Stack.Screen name="projects/new" options={{ ..., presentation: "modal" }} />` — declares the route and makes it slide up like a sheet. The Projects tab's new `<Button label="New Project" onPress={() => router.push("/projects/new")} />` opens it (`push` adds it on top of the current screen).
