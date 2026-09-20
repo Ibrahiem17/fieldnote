@@ -15,6 +15,7 @@ import { getTemplate } from "@/repositories/templates";
 import { getAnswers } from "@/repositories/answers";
 import { listAttachmentsForInspection } from "@/repositories/attachments";
 import { isFieldVisible } from "./visibility";
+import { formatIsoDateForDisplay } from "./dates";
 import type { Attachment, Inspection, Project } from "@/db/schema";
 
 // The template format has no formal types anywhere in this codebase yet
@@ -51,7 +52,9 @@ function formatValue(field: TemplateField, value: unknown): string {
     case "boolean":
       return Boolean(value) && value !== 0 && value !== "0" ? "Yes" : "No";
     case "date":
-      return new Date(Number(value)).toLocaleDateString();
+      // Stored as "YYYY-MM-DD" text (src/lib/dates.ts). The old branch expected
+      // an epoch-millisecond number, which no field ever produced.
+      return formatIsoDateForDisplay(String(value));
     case "number":
       return String(value);
     case "text":

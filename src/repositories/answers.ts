@@ -84,10 +84,28 @@ export async function saveAnswer(
     };
     await tx.update(answers).set(patch).where(eq(answers.id, existingRow.id));
 
-    // Instead of appending a new outbox row per autosave, remove any existing
-    // pending "update" outbox entries for this answer and append a fresh one.
-    // This keeps the outbox compact while preserving the latest state.
-    // (Phase 3 could also choose to dedupe on drain; either is acceptable.)
+    // Keep the outbox compact: one pending entry per answer, holding the
+    // latest state, instead of one per autosave.
+    //
+    // But the KIND of that entry matters (docs/DESIGN.md D-041). If an INSERT
+    // for this answer hasn't been sent yet, the server has never seen the row,
+    // so it must stay an INSERT — replacing it with an UPDATE (what this code
+    // used to do, by deleting every entry for the answer) made the server's
+    // update match nothing, and the answer never reached the server. So: fold
+    // the new values into the pending insert's payload and stop.
+    const pending = await tx.select().from(outbox).where(eq(outbox.entityId, existingRow.id));
+    const pendingInsert = pending.find((o) => o.operation === "insert");
+    if (pendingInsert) {
+      const latestRow = { ...existingRow, ...patch };
+      await tx
+        .update(outbox)
+        .set({ payloadJson: JSON.stringify(latestRow) })
+        .where(eq(outbox.id, pendingInsert.id));
+      return latestRow as Answer;
+    }
+
+    // Otherwise the server already has the row: replace any pending update
+    // with a fresh one carrying the latest values.
     await tx.delete(outbox).where(eq(outbox.entityId, existingRow.id));
 
     // The outbox payload uses the exact same column names as `patch` above

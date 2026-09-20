@@ -1597,3 +1597,21 @@ Before: any failure other than "permission denied" saved `{ latitude: 12.34, lon
 
 ### `src/db/templateDefs.test.ts` (new parts)
 `readdirSync(migrationsDir).filter((f) => f.includes("seed_") ...)` — list the files in the migrations folder and keep the template-seeding ones. `renderer.matchAll(/case "([a-z]+)":/g)` — scan the renderer's source text for every `case "something":` and collect the names: that's the list of field types it can draw. `new Set(keys).size` — a Set holds each value once, so if its size is smaller than the list's length, the list had duplicates.
+
+### `src/repositories/answers.ts` — folding edits into an unsent insert (D-041)
+`const pending = await tx.select().from(outbox).where(eq(outbox.entityId, existingRow.id));` — read the to-send list entries (the "outbox") for this one answer. `tx` is the database transaction: everything inside succeeds together or not at all.
+`const pendingInsert = pending.find((o) => o.operation === "insert");` — `.find` returns the first entry that matches, or nothing. Is there still an "insert" waiting to be sent?
+`{ ...existingRow, ...patch }` — the `...` spreads an object's fields into a new object; later ones win. So this is "the whole answer row, with the new values laid over the old". `JSON.stringify(...)` turns it into text for storage.
+`await tx.update(outbox).set({ payloadJson: ... }).where(eq(outbox.id, pendingInsert.id)); return ...;` — rewrite the waiting insert with the latest values and stop (`return`). Without this, the old code threw the insert away and queued an "update" — but the server can't update a row it has never been given, so the answer was lost.
+
+### `src/lib/numberInput.ts`
+`/^-?\d*\.?\d*$/.test(normalised)` — a regular expression (a pattern for text): optional `-`, any digits, optional `.`, any digits. `/\d/.test(...)` — and at least one real digit, so a lone "-" or "." doesn't count. `Number.isFinite(n)` — reject anything that isn't an ordinary number. The three return shapes (`empty` / `number` / `partial`) are a "discriminated union": a `kind` label says which shape you have, and TypeScript then knows which fields exist.
+
+### `src/components/FormRenderer.tsx` — `NumberField`
+`const [draft, setDraft] = useState<string | null>(null);` — `draft` is what the person is typing right now, or `null` when they're not editing. `value={draft ?? numberToText(value)}` — `??` means "if the left is null, use the right": show the draft while editing, otherwise the saved value. `onBlur` (leaving the box) commits: it turns the draft into a number (or "no answer") and passes it up, then `setDraft(null)` goes back to showing the saved value. `void onCommit(...)` — start the save and don't wait for it.
+
+### `src/lib/dates.ts`
+`raw.replace(/\D/g, "")` — delete everything that isn't a digit (`\D` = non-digit, `g` = everywhere). `.slice(0, 8)` — keep at most 8. Then hyphens are inserted after the 4th and 6th digit. `new Date(Date.UTC(year, month, 0)).getUTCDate()` — a trick: day 0 of the *next* month is the last day of this one, so this gives "how many days does this month have", including leap years. `isValidIsoDate` compares the typed day against it.
+
+### `src/lib/visibility.ts`
+`rule.in !== undefined && !(Boolean(other) && rule.in.includes(other))` — if the rule has an `in` list, and the answer is NOT (non-empty AND in the list), the field is hidden (`return false`). `equals` uses `!==` — "not strictly equal", so `1` and `"1"` differ. `isEmpty` treats `undefined`, `null`, `""` and `[]` as "nothing typed", but `0` counts as a real answer.

@@ -151,3 +151,23 @@ test("the same field, once its visibleIf condition IS met, is validated normally
   const errors = validate({ roof_condition: "poor" }); // roof_age left unanswered, but now visible
   expect(errors.roof_age).toBe("Required");
 });
+
+// --- date fields (D-041): stored as "YYYY-MM-DD" text -----------------------
+
+test("a real date passes, an impossible one is blocked", () => {
+  const validate = buildValidator(
+    schemaWith([{ key: "when", type: "date", label: "Walk date" }]),
+  );
+  expect(validate({ when: "2026-09-21" }).when).toBeUndefined();
+  expect(validate({ when: "2026-02-30" }).when).toBe("Enter a real date as YYYY-MM-DD");
+  expect(validate({ when: "2026-09-2" }).when).toBe("Enter a real date as YYYY-MM-DD"); // unfinished
+});
+
+test("an optional date left blank is fine; a required one is not", () => {
+  const optional = buildValidator(schemaWith([{ key: "when", type: "date", label: "D" }]));
+  const required = buildValidator(
+    schemaWith([{ key: "when", type: "date", label: "D", required: true }]),
+  );
+  expect(optional({}).when).toBeUndefined();
+  expect(required({}).when).toBe("Required");
+});

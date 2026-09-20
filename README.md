@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS%20%7C%20Web-blue)
 ![Expo SDK](https://img.shields.io/badge/Expo%20SDK-57-000020?logo=expo)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-36%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-80%20passing-brightgreen)
 ![CI](https://github.com/Ibrahiem17/fieldnote/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -38,7 +38,7 @@ Built by **Muhammad Ibrahiem** ([ZYNVEX-CERT-1271](https://github.com/Ibrahiem17
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 | Foundation, navigation, offline SQLite data layer | Code-complete. Real-device verification began after Phase 4 (see `docs/TEST-RESULTS-DEVICE.md`) ([`TEST-RESULTS-PHASE-1.md`](docs/TEST-RESULTS-PHASE-1.md)). |
-| 2 | Dynamic form engine, field types, camera, GPS | Code-complete. Nine of the plan's ten field types shipped (only `date` was missing at this point) and a third template — written with zero engine changes — now exists ([`TEST-RESULTS-PHASE-2.md`](docs/TEST-RESULTS-PHASE-2.md)). |
+| 2 | Dynamic form engine, field types, camera, GPS | Code-complete. All ten of the plan's field types shipped (`date` was added last) and a third template — written with zero engine changes — now exists ([`TEST-RESULTS-PHASE-2.md`](docs/TEST-RESULTS-PHASE-2.md)). |
 | 3 | Supabase sync engine, auth, RLS, conflict resolution, background upload | Complete and **live-verified against a real Supabase project** — 15/35 test cases, including all three the plan names as proving it worked (by scripts pushing hand-made rows; the real app-to-server path was first exercised on a phone after Phase 4 and found two gaps — see `docs/DESIGN.md` D-038) ([`TEST-RESULTS-PHASE-3.md`](docs/TEST-RESULTS-PHASE-3.md), [`SYNC.md`](docs/SYNC.md)). |
 | 4 | PDF reports, performance, animation, accessibility, tests, CI, release | Complete, with an honest split: automated tests and CI are real and live-verified; PDF/sharing/performance/release need a device or an external account this environment never had ([`TEST-RESULTS-PHASE-4.md`](docs/TEST-RESULTS-PHASE-4.md)). |
 
@@ -48,7 +48,7 @@ Built by **Muhammad Ibrahiem** ([ZYNVEX-CERT-1271](https://github.com/Ibrahiem17
 - **Field-level conflict resolution with an explicit, tested policy** — different fields merge silently; the same field within a 60-second window is flagged for a person to decide; a delete always beats an older edit. `resolveConflict` is a pure function with 7 unit tests, one of which is a deliberately-broken-then-fixed proof that the tests actually catch a real regression.
 - **Schema-driven forms** — a template is plain JSON; the form engine, validation, and conditional-field visibility all derive from it. Three templates ship; the third ("Site Safety Walk") was added with no change to the renderer, validator or report code — the plan's "zero code changes" claim, run and guarded by tests (`docs/DESIGN.md` D-040). Built-in templates are ensured at every startup, so a fresh install has them.
 - **Background photo uploads on-device**, with a three-step atomic-per-attempt sequence (row → file bytes → `remote_url` follow-up) so a killed app mid-upload retries cleanly instead of leaving a lie behind.
-- **A real, currently-green CI pipeline** ([workflow](.github/workflows/ci.yml)) — typecheck, lint, and 36 automated tests on every push, verified live by watching an actual run fail on a deliberate type error and recover.
+- **A real, currently-green CI pipeline** ([workflow](.github/workflows/ci.yml)) — typecheck, lint, and 80 automated tests on every push, verified live by watching an actual run fail on a deliberate type error and recover.
 - **What's deliberately not claimed:** measured performance numbers (Phase 4's own rules require real hardware to produce them honestly — none exists here, so `PERFORMANCE.md` says so instead of inventing any), and a shipped production build (needs a real Expo/Apple/Google account this build session could not create).
 
 ## Tech stack
@@ -103,7 +103,7 @@ Then press `a` for the Android emulator, `i` for iOS simulator (macOS only), or 
 | `npm run web:coi` | Web preview through a proxy adding the headers `expo-sqlite` web needs |
 | `npm run typecheck` | `tsc --noEmit` — must pass with zero errors before any commit |
 | `npm run lint` | ESLint over the whole project |
-| `npm test` | Jest — 36 tests: conflict resolution, backoff, validation, template ids, report HTML, one repository integration test |
+| `npm test` | Jest — 80 tests: conflict resolution, backoff, validation, visibility, dates and number input, template ids and migrations, report HTML, and repository integration tests (projects, templates, answers) |
 | `npm run db:generate` | Generate a new Drizzle migration after editing `src/db/schema.ts` |
 
 ## Project structure
@@ -204,7 +204,7 @@ Being honest about these is the point, not an afterthought — a documented limi
 - **Photo size is not hard-capped.** Photos are resized to a 1600 px long edge at JPEG quality 0.7, not compressed to a target size; the one photo measured after the fix was about 124 KB, but a very detailed scene could still exceed 300 KB.
 - **GPS uses "balanced" accuracy** (measured about 100 m on the test phone), not high accuracy — adequate for stamping a site, not for sub-10 m needs.
 - **No Sentry account exists**, so crash reporting is installed and wired (`src/lib/sentry.ts`) but has never sent a real report — gated on an unset `EXPO_PUBLIC_SENTRY_DSN`, a deliberate no-op rather than a silent gap.
-- **Only 6 of the plan's 10 field types are implemented** (`text`, `longtext`, `number`, `select`, `multiselect`, `boolean`, `photo`, `gps`, `signature` — missing `date` and `rating`), and `visibleIf` only ever supports the `in` operator (`equals`/`notEmpty` were planned but never built). Neither has ever been needed by either of the two real templates that exist.
+- **`date` fields are typed, not picked.** All ten of the plan's field types now exist (`text`, `longtext`, `number`, `select`, `multiselect`, `boolean`, `date`, `photo`, `gps`, `signature`), and `visibleIf` supports `in`, `equals` and `notEmpty`. But a date is entered as digits (`YYYY-MM-DD`, hyphens inserted automatically) rather than through a native calendar, because a picker needs a new native module and therefore a new build (`docs/DESIGN.md` D-041). `rating` (mentioned in the Phase 4 plan) was never built.
 - **A third template proving the form engine needs zero code changes for a new inspection type was never authored** — the plan's own explicit test for whether Phase 2 succeeded, still open.
 - **Web preview may run in "preview mode" (sample data) instead of against a real database, depending on your browser** — see [`docs/DESIGN.md`](docs/DESIGN.md) D-008 through D-014. Every repository falls back to an in-memory mock store when the real database can't open, so the real screens still render with a persistent "Preview mode" banner. Android and iOS use native on-device SQLite and were never affected — web was never a target platform.
 - **Runtime validation is hand-rolled, not Zod**, despite the original plan specifying Zod — a deliberate, working choice, just never written down until this project's own mid-Phase-4 audit caught the gap (`docs/DESIGN.md` D-027).

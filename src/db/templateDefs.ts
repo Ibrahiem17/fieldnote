@@ -132,12 +132,12 @@ export const TEMPLATE_DEFS: TemplateDef[] = [
       ],
     },
   },
-  // A third template, written using ONLY field types the engine already had
-  // (select, boolean, number, longtext, photo, gps, signature, visibleIf "in") —
-  // adding it touched no renderer, validator or report code, which is the
-  // plan's "a new template needs zero code changes" claim, actually run
-  // (docs/DESIGN.md D-040). It is also the first shipped template that uses
-  // `gps` and `signature`, so both are reachable from the real UI.
+  // A third template. Its first version (commit 05c254c) used ONLY field types
+  // the engine already had and touched no renderer, validator or report code —
+  // the plan's "a new template needs zero code changes" claim, actually run
+  // (docs/DESIGN.md D-040). `walk_date` was added afterwards, once the `date`
+  // type existed (D-041) and before this template's server migration was ever
+  // applied. It is the first shipped template using `gps`, `signature` and `date`.
   {
     dbId: "ed376cd2-b6be-4a1f-b9c4-22611faeceb0",
     id: "site-safety-walk-v1",
@@ -163,6 +163,7 @@ export const TEMPLATE_DEFS: TemplateDef[] = [
                 { value: "wind", label: "High wind" },
               ],
             },
+            { key: "walk_date", type: "date", label: "Walk date" },
             { key: "crew_size", type: "number", label: "People on site", min: 0, max: 500 },
           ],
         },

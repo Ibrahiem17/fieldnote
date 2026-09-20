@@ -21,6 +21,8 @@ import { takePhotoAndCompress, getLocationWithTimeout } from "@/lib/media";
 import SignaturePad from "@/components/SignaturePad";
 import { PhotoViewer } from "@/components/PhotoViewer";
 import { isFieldVisible } from "@/lib/visibility";
+import { parseNumberInput } from "@/lib/numberInput";
+import { formatDateInput } from "@/lib/dates";
 
 type TemplateSchema = {
   id: string;
@@ -38,6 +40,63 @@ type TemplateSchema = {
 // that's hidden here is guaranteed to also be excluded from validation and
 // from reports, by construction, not by three copies staying in sync by
 // hand.
+
+function numberToText(value: unknown): string {
+  return value === undefined || value === null || value === "" ? "" : String(value);
+}
+
+/**
+ * A number box that keeps what's being typed. The old version stored
+ * `Number(text)` on every keystroke: "3." became 3 (the dot vanished, so 3.3
+ * was untypeable) and a cleared box became 0 (docs/DESIGN.md D-041).
+ *
+ * While the person is editing, `draft` holds exactly what they typed; when
+ * they're not, the box simply shows the stored value. Only a parsable value
+ * (or "no answer" for blank) is passed up to be saved, so there's nothing to
+ * keep in sync with an effect.
+ */
+function NumberField({
+  label,
+  value,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  value: unknown;
+  onChange: (n: number | null) => void;
+  onCommit: (n: number | null) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  return (
+    <Input
+      label={label}
+      value={draft ?? numberToText(value)}
+      keyboardType="numeric"
+      onChangeText={(t) => {
+        setDraft(t);
+        const parsed = parseNumberInput(t);
+        if (parsed.kind === "number") onChange(parsed.value);
+        else if (parsed.kind === "empty") onChange(null);
+        // partial (an unfinished "-" or "."): keep typing, save nothing yet
+      }}
+      onBlur={() => {
+        if (draft === null) return; // never edited: nothing to commit
+        const parsed = parseNumberInput(draft);
+        const committed =
+          parsed.kind === "number"
+            ? parsed.value
+            : parsed.kind === "empty"
+              ? null
+              : typeof value === "number"
+                ? value
+                : null;
+        setDraft(null);
+        void onCommit(committed);
+      }}
+    />
+  );
+}
 
 // Move FieldComponent outside the main function so it can be memoized reliably.
 const FieldComponent = React.memo(function FieldComponent(props: {
@@ -81,11 +140,24 @@ const FieldComponent = React.memo(function FieldComponent(props: {
       );
     case "number":
       return (
+        <NumberField
+          label={field.label}
+          value={value}
+          onChange={(n) => onScheduleSave(field.key, n)}
+          onCommit={(n) => onImmediateSave(field.key, n)}
+        />
+      );
+    case "date":
+      // Stored as the text "YYYY-MM-DD" (see src/lib/dates.ts). Typed, with the
+      // hyphens inserted automatically; a native picker needs a new build.
+      return (
         <Input
           label={field.label}
-          value={v !== "" ? String(v) : ""}
-          keyboardType="numeric"
-          onChangeText={(t) => onScheduleSave(field.key, Number(t))}
+          value={String(v)}
+          placeholder="YYYY-MM-DD"
+          keyboardType="number-pad"
+          maxLength={10}
+          onChangeText={(t) => onScheduleSave(field.key, formatDateInput(t))}
           onBlur={() => onImmediateSave(field.key, v)}
         />
       );

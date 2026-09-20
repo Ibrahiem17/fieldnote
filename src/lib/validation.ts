@@ -4,6 +4,7 @@
 // checks for `required`, `min`, `max`, and `maxLength`.
 
 import { isFieldVisible } from "./visibility";
+import { isValidIsoDate } from "./dates";
 
 export type TemplateField = any;
 
@@ -41,6 +42,13 @@ export function buildValidator(schema: { sections: { fields: TemplateField[] }[]
           }
           if (typeof field.max === "number" && n > field.max) {
             errors[field.key] = `Maximum ${field.max}`;
+            continue;
+          }
+        }
+
+        if (field.type === "date" && v !== undefined && v !== null && v !== "") {
+          if (typeof v !== "string" || !isValidIsoDate(v)) {
+            errors[field.key] = "Enter a real date as YYYY-MM-DD";
             continue;
           }
         }

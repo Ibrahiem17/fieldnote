@@ -44,3 +44,10 @@ inspections; the plan's protocol wants 5,000).
 2. NEW: the Projects tab now has a **New Project** button (screen at `/projects/new`, added after this checklist's first draft) and the temporary Settings dev button was removed — first on-device run of that screen still pending: create a project, confirm it appears in the list, opens, and shows in Supabase → projects after Sync Now.
 3. The phone already holds "Airplane Sync Test" (created offline, in "Sync Test Project 21:10:14"). Tap Settings → Sync Now (online) → I read the phone DB (outbox should be 0, inspection `synced`) → tester confirms exactly ONE "Airplane Sync Test" in Supabase → inspections (+ answers).
 4. Then, still untested on the device: photo upload path, Generate Report (PDF render + share sheet), deep link with the app fully closed, performance, gesture feel, screen reader.
+
+### Added to the resume checklist (built after the last device session, all unverified on a device)
+- **Run the new migration in the Supabase SQL editor first:** `supabase/migrations/20260920000002_seed_safety_walk_template.sql` (the first one, `..._seed_templates.sql`, was already run). Then check Table Editor → templates shows **3** rows.
+- Fresh-install behaviour: on a phone with no data (or after clearing app data), the app should offer all three templates in New Inspection with **no** reseed (`ensureBuiltInTemplates`, D-040).
+- **Sync of typed answers:** in an inspection, type a text answer in several pauses, then Sync Now — the answer must appear in Supabase → answers (the D-041 data-loss bug).
+- Number fields: type `3.3` (the dot must stay) and clear the box (it must not become 0).
+- Site Safety Walk: Walk date auto-hyphens; an impossible date (e.g. 2026-02-30) is refused on save; Site location and Inspector signature are reachable; setting Hazard level to High reveals the hazard photo field.
