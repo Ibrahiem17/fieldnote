@@ -264,3 +264,9 @@ The lesson is the one that keeps recurring: a check on the parts isn't a check o
 ## "New Project" — the button that should have existed all along
 
 The app could hold projects and could put inspections inside them, but there was no way for a person to make a project. The only projects that ever appeared came from a developer tool that fills the phone with pretend data — and pretend data is deliberately never sent to the server. So on a brand-new phone, everything an inspector made sat inside a project the office had never heard of, and could never be delivered. It was invisible for as long as testing only ever used the pretend data. The fix is the obvious one: a "New Project" button with a small form (name required; client and address optional). It's added late, during a period when new features were supposed to stop, because without it the app's central promise — make it in the field, it reaches the office — couldn't be kept.
+
+## Templates weren't actually inside the app — and a third one proves the idea works
+
+An inspection form is built from a "template": a description of which questions to ask. The app is supposed to carry its templates with it. But the only thing that ever put them on a phone was a developer's reset button, so a brand-new install had none, and starting an inspection gave a blank page. Now, every time the app opens, it quietly checks that its built-in templates are present, adds any that are missing, replaces one only if the app's copy is newer, and never overwrites something newer with something older.
+
+A third template, "Site Safety Walk", was then added purely by writing down its questions — no change to any code that draws forms, checks answers, or builds reports. That's the original promise of the design: new form, no programmer needed for the engine. It also happens to ask for a location and a signature, which the first two templates never did.

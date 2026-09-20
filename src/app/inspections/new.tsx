@@ -37,6 +37,10 @@ export default function NewInspectionScreen() {
       // a project's own screen), default to the first one so the picker is
       // never left in an invalid "nothing selected" state.
       setProjectId((current) => current ?? p[0]?.id);
+      // Likewise preselect the first template: an inspection with no template
+      // opens as a blank form with no fields, which is almost never what
+      // someone wants (docs/DESIGN.md D-040). They can still tap it to clear it.
+      setTemplateId((current) => current ?? t[0]?.id);
     });
   }, []);
 

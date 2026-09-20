@@ -132,4 +132,80 @@ export const TEMPLATE_DEFS: TemplateDef[] = [
       ],
     },
   },
+  // A third template, written using ONLY field types the engine already had
+  // (select, boolean, number, longtext, photo, gps, signature, visibleIf "in") —
+  // adding it touched no renderer, validator or report code, which is the
+  // plan's "a new template needs zero code changes" claim, actually run
+  // (docs/DESIGN.md D-040). It is also the first shipped template that uses
+  // `gps` and `signature`, so both are reachable from the real UI.
+  {
+    dbId: "ed376cd2-b6be-4a1f-b9c4-22611faeceb0",
+    id: "site-safety-walk-v1",
+    name: "Site Safety Walk",
+    version: 1,
+    schema: {
+      id: "site-safety-walk-v1",
+      name: "Site Safety Walk",
+      version: 1,
+      sections: [
+        {
+          id: "site",
+          title: "Site",
+          fields: [
+            { key: "site_location", type: "gps", label: "Site location" },
+            {
+              key: "weather",
+              type: "select",
+              label: "Weather",
+              options: [
+                { value: "clear", label: "Clear" },
+                { value: "rain", label: "Rain" },
+                { value: "wind", label: "High wind" },
+              ],
+            },
+            { key: "crew_size", type: "number", label: "People on site", min: 0, max: 500 },
+          ],
+        },
+        {
+          id: "hazards",
+          title: "Hazards",
+          fields: [
+            { key: "ppe_worn", type: "boolean", label: "Everyone wearing required PPE" },
+            {
+              key: "hazard_level",
+              type: "select",
+              label: "Hazard level",
+              required: true,
+              options: [
+                { value: "none", label: "None" },
+                { value: "low", label: "Low" },
+                { value: "high", label: "High" },
+              ],
+            },
+            {
+              key: "hazard_notes",
+              type: "longtext",
+              label: "Describe the hazard",
+              visibleIf: { field: "hazard_level", in: ["low", "high"] },
+            },
+            {
+              key: "hazard_photos",
+              type: "photo",
+              label: "Photograph the hazard",
+              maxCount: 5,
+              visibleIf: { field: "hazard_level", in: ["high"] },
+            },
+          ],
+        },
+        {
+          id: "signoff",
+          title: "Sign-off",
+          fields: [
+            { key: "walk_notes", type: "longtext", label: "Notes" },
+            { key: "inspector_signature", type: "signature", label: "Inspector signature" },
+          ],
+        },
+      ],
+    },
+  },
 ];

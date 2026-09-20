@@ -17,7 +17,7 @@
 // decided once at module load — never mid-render — so each component is
 // free to call whichever hooks make sense for its own case.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Stack } from "expo-router";
@@ -32,7 +32,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import LoginScreen from "@/auth/LoginScreen";
 import { startAutoSync } from "@/lib/syncTriggers";
-import { initSentry } from "@/lib/sentry";
+import { initSentry, reportError } from "@/lib/sentry";
+import { ensureBuiltInTemplates } from "@/repositories/templates";
 
 // Phase 4, Day 6: called once, at module load — before any component
 // renders, so a crash during the very first render is still covered.
@@ -159,6 +160,21 @@ function MigrationGate() {
   // `db` is guaranteed non-null (src/db/client.ts).
   const { success, error } = useMigrations(db!, migrations);
   const theme = useTheme();
+  // The built-in templates must exist before any screen can list them, so the
+  // app only opens once they've been ensured (docs/DESIGN.md D-040).
+  const [templatesReady, setTemplatesReady] = useState(false);
+
+  useEffect(() => {
+    if (!success) return;
+    ensureBuiltInTemplates()
+      .catch((e) => {
+        // Not fatal: the app still works, New Inspection just has fewer
+        // templates to offer. Loud in dev, reported in production.
+        console.error("ensureBuiltInTemplates failed:", e);
+        reportError(e);
+      })
+      .finally(() => setTemplatesReady(true));
+  }, [success]);
 
   useEffect(() => {
     if (error) {
@@ -190,8 +206,8 @@ function MigrationGate() {
     );
   }
 
-  if (!success) {
-    // Migrations are still running. This is the loading state Section
+  if (!success || !templatesReady) {
+    // Migrations (or the built-in template check) are still running. This is the loading state Section
     // 3.4.3 requires — without it a screen could flash empty before its
     // table exists.
     return (

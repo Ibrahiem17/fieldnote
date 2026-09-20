@@ -1583,3 +1583,17 @@ Before: any failure other than "permission denied" saved `{ latitude: 12.34, lon
 
 ### `src/app/_layout.tsx` and `(tabs)/index.tsx`
 `<Stack.Screen name="projects/new" options={{ ..., presentation: "modal" }} />` — declares the route and makes it slide up like a sheet. The Projects tab's new `<Button label="New Project" onPress={() => router.push("/projects/new")} />` opens it (`push` adds it on top of the current screen).
+
+### `src/repositories/templates.ts` — `ensureBuiltInTemplates` (D-040)
+`export async function ensureBuiltInTemplates(): Promise<void>` — `Promise<void>` means "an async function that gives back nothing, just finishes". Its whole job: make sure the app's built-in templates are in the phone's database.
+`if (!isDbAvailable()) return;` — in the web preview there's no real database (the app uses a pretend one that already has templates), so do nothing.
+`for (const def of TEMPLATE_DEFS) { ... }` — loop over every built-in template, one at a time, handing each to `def`.
+`db.insert(templates).values({...})` — try to add the row. `.onConflictDoUpdate({ target: templates.id, set: {...}, setWhere: lt(templates.version, def.version) })` — "if a row with this id already exists, then instead of failing, update it — but only where the stored `version` is *less than* (`lt`) the app's". That last clause is what makes it safe to run on every startup: same version → nothing changes; a newer version stored → left alone.
+`syncStatus: "synced"` — the server already has these rows (a migration put them there), so they're honestly "synced". No outbox note is written: this isn't something a person did.
+
+### `src/app/_layout.tsx` — waiting for templates
+`const [templatesReady, setTemplatesReady] = useState(false);` — a yes/no memory: have the templates been checked yet?
+`useEffect(() => { if (!success) return; ensureBuiltInTemplates().catch(...).finally(() => setTemplatesReady(true)); }, [success]);` — once migrations finish (`success`), run the check; `.catch` reports a failure without crashing; `.finally` always flips the flag so the app opens either way. `if (!success || !templatesReady)` shows the spinner until both are done.
+
+### `src/db/templateDefs.test.ts` (new parts)
+`readdirSync(migrationsDir).filter((f) => f.includes("seed_") ...)` — list the files in the migrations folder and keep the template-seeding ones. `renderer.matchAll(/case "([a-z]+)":/g)` — scan the renderer's source text for every `case "something":` and collect the names: that's the list of field types it can draw. `new Set(keys).size` — a Set holds each value once, so if its size is smaller than the list's length, the list had duplicates.
