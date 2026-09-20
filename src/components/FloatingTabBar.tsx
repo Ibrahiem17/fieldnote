@@ -22,6 +22,7 @@ import { Text } from "./Text";
 const tabIcons: Record<string, IconName> = {
   index: "projects",
   inspections: "inspections",
+  guide: "guide",
   settings: "settings",
 };
 

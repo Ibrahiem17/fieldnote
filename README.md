@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS%20%7C%20Web-blue)
 ![Expo SDK](https://img.shields.io/badge/Expo%20SDK-57-000020?logo=expo)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-134%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-145%20passing-brightgreen)
 ![CI](https://github.com/Ibrahiem17/fieldnote/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -13,7 +13,7 @@ An inspector fills in a template-driven checklist — text, photos, a signature,
 
 Built by **Muhammad Ibrahiem** ([ZYNVEX-CERT-1271](https://github.com/Ibrahiem17)) for the **Zynvex Solutions** internship program — four phases, 24 Aug – 20 Sep 2026.
 
-**Install:** no production build exists yet — see [Known issues](#known-issues) for exactly why, and what's real instead (a real, currently-green CI pipeline).
+**Install (Android):** a production APK is built with EAS — download it from the repository's Releases page and open it on the phone (allow "install unknown apps" once). The app opens with a built-in **How to use** tab that explains what Fieldnote is and how to use it. What is and isn't ready for the app stores is in [`docs/RELEASE.md`](docs/RELEASE.md).
 
 ---
 
@@ -48,8 +48,8 @@ Built by **Muhammad Ibrahiem** ([ZYNVEX-CERT-1271](https://github.com/Ibrahiem17
 - **Field-level conflict resolution with an explicit, tested policy** — different fields merge silently; the same field within a 60-second window is flagged for a person to decide; a delete always beats an older edit. `resolveConflict` is a pure function with 7 unit tests, one of which is a deliberately-broken-then-fixed proof that the tests actually catch a real regression.
 - **Schema-driven forms** — a template is plain JSON; the form engine, validation, and conditional-field visibility all derive from it. Three templates ship; the third ("Site Safety Walk") was added with no change to the renderer, validator or report code — the plan's "zero code changes" claim, run and guarded by tests (`docs/DESIGN.md` D-040). Built-in templates are ensured at every startup, so a fresh install has them.
 - **Background photo uploads on-device**, with a three-step atomic-per-attempt sequence (row → file bytes → `remote_url` follow-up) so a killed app mid-upload retries cleanly instead of leaving a lie behind.
-- **A real, currently-green CI pipeline** ([workflow](.github/workflows/ci.yml)) — typecheck, lint, and 134 automated tests on every push, verified live by watching an actual run fail on a deliberate type error and recover.
-- **What's deliberately not claimed:** measured performance numbers (Phase 4's own rules require real hardware to produce them honestly — none exists here, so `PERFORMANCE.md` says so instead of inventing any), and a shipped production build (needs a real Expo/Apple/Google account this build session could not create).
+- **A real, currently-green CI pipeline** ([workflow](.github/workflows/ci.yml)) — typecheck, lint, and 145 automated tests on every push, verified live by watching an actual run fail on a deliberate type error and recover.
+- **What's deliberately not claimed:** measured performance numbers (Phase 4's own rules require real hardware to produce them honestly — none exists here, so `PERFORMANCE.md` says so instead of inventing any), and store distribution (Google Play / the App Store need paid developer accounts; see [`docs/RELEASE.md`](docs/RELEASE.md)). A production Android APK does exist and runs on a real phone.
 
 ## Tech stack
 
@@ -103,7 +103,8 @@ Then press `a` for the Android emulator, `i` for iOS simulator (macOS only), or 
 | `npm run web:coi` | Web preview through a proxy adding the headers `expo-sqlite` web needs |
 | `npm run typecheck` | `tsc --noEmit` — must pass with zero errors before any commit |
 | `npm run lint` | ESLint over the whole project |
-| `npm test` | Jest — 134 tests: the sync engine, conflict resolution, backoff, validation, visibility, dates and number input, template ids and migrations, report HTML, and repository integration tests (projects, templates, answers) |
+| `npm test` | Jest — 145 tests: the sync engine, conflict resolution, backoff, validation, visibility, dates and number input, template ids and migrations, report HTML, and repository integration tests (projects, templates, answers) |
+| `npm run assets:brand` | Redraw the app icon and splash image from `scripts/make-brand-assets.mjs` |
 | `npm run db:generate` | Generate a new Drizzle migration after editing `src/db/schema.ts` |
 
 ## Project structure

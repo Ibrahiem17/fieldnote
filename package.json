@@ -26,6 +26,7 @@
     "expo-router": "~57.0.16",
     "expo-secure-store": "~57.0.4",
     "expo-sharing": "~57.0.20",
+    "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.1",
     "expo-status-bar": "~57.0.1",
     "expo-task-manager": "~57.0.17",
@@ -58,6 +59,7 @@
     "jest": "^30.5.1",
     "patch-package": "^8.0.1",
     "prettier": "^3.9.6",
+    "sharp": "^0.35.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -70,7 +72,8 @@
     "lint": "eslint .",
     "test": "jest",
     "db:generate": "drizzle-kit generate",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "assets:brand": "node scripts/make-brand-assets.mjs"
   },
   "private": true
 }

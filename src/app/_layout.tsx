@@ -22,6 +22,7 @@ import { ActivityIndicator, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
 import {
   BarlowCondensed_300Light,
   BarlowCondensed_500Medium,
@@ -50,6 +51,16 @@ import { ensureBuiltInTemplates } from "@/repositories/templates";
 // A no-op with no DSN configured (src/lib/sentry.ts) — this sandbox's
 // permanent state, since no real Sentry account exists to create one.
 initSentry();
+
+// The native splash screen (the hard-hat mark on cream, configured in app.json) stays
+// up until the fonts are ready and the sign-in check has finished, then fades out —
+// so there is never a blank frame between it and the first screen. A timer hides it
+// after 8 s no matter what, so a failure can never leave it stuck on screen.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.setOptions({ duration: 350, fade: true });
+setTimeout(() => {
+  SplashScreen.hideAsync().catch(() => {});
+}, 8000);
 
 export default function RootLayout() {
   // The design's fonts (Barlow Condensed headings, DM Sans body) must be ready
@@ -100,6 +111,11 @@ export default function RootLayout() {
 function AuthGate() {
   const { session, loading } = useAuth();
   const theme = useTheme();
+
+  // Sign-in check finished (and fonts were ready to get this far): reveal the app.
+  useEffect(() => {
+    if (!loading) SplashScreen.hideAsync().catch(() => {});
+  }, [loading]);
 
   // Connectivity/foreground auto-sync (plan Section 3.3.3) — only ever
   // worth starting once someone's actually signed in; there's nothing to

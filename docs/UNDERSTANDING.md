@@ -313,3 +313,10 @@ Things also move now. Buttons and cards shrink a little when you press them and 
 Two promises the design keeps. Capital letters are used only for the app's own fixed words — never for what a person typed, so a project called "Harborview Retail" stays as written. And text is always readable: the reference's colours were too pale for small white text, so the app uses slightly deeper versions where it matters, and an automatic check fails if anyone changes that. The PDF report was deliberately left looking exactly as it did before.
 
 The little pictures on the bottom bar are proper icons from a free open-source set, replacing the emoji that were there.
+
+
+## A real icon, a splash screen, and a built-in "How to use"
+
+The app now has its own face. The picture you tap on your phone's home screen is a cream hard hat with a green tick, on the app's purple. On phones that colour their icons to match the wallpaper, a single-colour version is used instead. When you open the app, that same picture appears for a moment on a warm cream background and fades away as soon as everything is ready — so you never see a blank white flash. If something goes wrong while loading, it goes away by itself after a few seconds rather than getting stuck.
+
+There's also a new tab called **How to use**, for someone who has never seen the app. It says, in plain words, what Fieldnote is (a notebook for inspections that works without signal), the four easy steps (create a project, start an inspection, fill it in, finish and share the PDF), what the strip at the top means when you're offline, what each label like "Draft" and "Completed" means, what to do if the camera or location won't start, and what happens to your data. The first time the app is opened, this guide opens by itself once; after that it just sits in the bottom bar. If the app is opened by tapping a link to a specific inspection, it goes straight there instead and keeps the guide for next time.

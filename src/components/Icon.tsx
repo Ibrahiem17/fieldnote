@@ -8,10 +8,17 @@
 // Each icon comes from its own file: the package's main entry pulls in all ~1,500
 // icons, which more than doubled the development bundle.
 import ArrowUpRight from "lucide-react-native/icons/arrow-up-right";
+import BookOpen from "lucide-react-native/icons/book-open";
+import Camera from "lucide-react-native/icons/camera";
 import ClipboardCheck from "lucide-react-native/icons/clipboard-check";
+import ClipboardPen from "lucide-react-native/icons/clipboard-pen";
+import FileText from "lucide-react-native/icons/file-text";
+import FolderPlus from "lucide-react-native/icons/folder-plus";
 import HardHat from "lucide-react-native/icons/hard-hat";
 import Plus from "lucide-react-native/icons/plus";
 import Settings from "lucide-react-native/icons/settings";
+import ShieldCheck from "lucide-react-native/icons/shield-check";
+import WifiOff from "lucide-react-native/icons/wifi-off";
 
 const icons = {
   projects: HardHat,
@@ -19,6 +26,13 @@ const icons = {
   settings: Settings,
   arrow: ArrowUpRight,
   plus: Plus,
+  guide: BookOpen,
+  folder: FolderPlus,
+  fill: ClipboardPen,
+  report: FileText,
+  offline: WifiOff,
+  shield: ShieldCheck,
+  camera: Camera,
 } as const;
 
 export type IconName = keyof typeof icons;
