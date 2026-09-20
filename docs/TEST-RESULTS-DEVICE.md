@@ -72,3 +72,6 @@ inspections; the plan's protocol wants 5,000).
 | 2026-09-21 | "Use today's date" | **Pass** | Filled 2026-09-20 (the phone's date). |
 | 2026-09-21 | Edit project | **Pass** | Prefilled form titled "Edit project"; renamed "Scratch" → "Scratch Renamed", shown on its page. |
 | 2026-09-21 | Delete project | **Pass (UI)** | Confirmation dialog, then "Project deleted" toast and gone from the list (empty throwaway project). Cascade with inspections and its sync to the server: unit-tested only. |
+| 2026-09-21 | Changes upload by themselves (D-045) | **Pass** | Created "Auto check" in the UI; log `auto-sync (periodic): pushed 1` ~5 s later, project `synced`, outbox empty, no button pressed. Deleting it uploaded the same way. |
+| 2026-09-21 | Remove sample data, keeping real work | **Pass** | Dry run on a copy of the phone's DB, then the button: "Removed 500 sample inspections and 8 sample projects"; 2 projects + 3 inspections remain (all `synced`), outbox 0. |
+| 2026-09-21 | Upload banner rendering | **Pending (needs airplane mode)** | Wording is unit-tested; not yet seen on screen because uploads now clear within seconds. Check: airplane mode on → create something → banner "You're offline. 1 change will upload when you have a signal." |

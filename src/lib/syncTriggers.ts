@@ -10,6 +10,13 @@ import NetInfo from "@react-native-community/netinfo";
 import { AppState, type AppStateStatus } from "react-native";
 
 import { runSync } from "./sync";
+import { getOutboxSummary } from "./syncEngine";
+
+// How often to check, while the app is open and online, for work waiting to
+// upload. Sync used to run only on reconnect and on coming back to the
+// foreground, so a change made while already online sat unsent until one of
+// those happened, even though Settings said it uploads "by itself" (D-045).
+const PERIODIC_CHECK_MS = 15_000;
 
 let syncInFlight = false;
 
@@ -41,6 +48,7 @@ async function triggerSync(reason: string): Promise<void> {
  */
 export function startAutoSync(): () => void {
   let wasConnected: boolean | null = null;
+  let connectedNow = false;
 
   const unsubscribeNetInfo = NetInfo.addEventListener((state) => {
     const isConnected = Boolean(state.isConnected && state.isInternetReachable !== false);
@@ -51,6 +59,7 @@ export function startAutoSync(): () => void {
       void triggerSync("reconnected");
     }
     wasConnected = isConnected;
+    connectedNow = isConnected;
   });
 
   const handleAppStateChange = (nextState: AppStateStatus) => {
@@ -60,7 +69,20 @@ export function startAutoSync(): () => void {
   };
   const appStateSubscription = AppState.addEventListener("change", handleAppStateChange);
 
+  // Something to send while online? Send it now, instead of waiting for the next
+  // foreground/reconnect. Offline checks cost nothing (D-042): no attempts spent.
+  const periodic = setInterval(async () => {
+    if (!connectedNow) return;
+    try {
+      const { pending } = await getOutboxSummary();
+      if (pending > 0) void triggerSync("periodic");
+    } catch (e) {
+      console.error("[sync] periodic check failed", e);
+    }
+  }, PERIODIC_CHECK_MS);
+
   return () => {
+    clearInterval(periodic);
     unsubscribeNetInfo();
     appStateSubscription.remove();
   };

@@ -10,7 +10,7 @@ import { ActivityIndicator, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { FlashList } from "@shopify/flash-list";
 
-import { Screen, Text, Card, EmptyState, Button } from "@/components";
+import { Screen, Text, Card, EmptyState, Button, UploadBanner } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { listProjects } from "@/repositories/projects";
 import type { Project } from "@/db/schema";
@@ -53,6 +53,7 @@ export default function ProjectsScreen() {
 
   return (
     <Screen padded={false}>
+      <UploadBanner />
       {loading && projectList.length === 0 ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator color={theme.colors.primary} />

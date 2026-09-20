@@ -10,6 +10,8 @@
 // impossible to verify — the count would already include hundreds of rows
 // nobody actually created.
 
+import { inArray } from "drizzle-orm";
+
 import { isDbAvailable, requireDb } from "./client";
 import { projects, templates, inspections, answers, attachments, outbox } from "./schema";
 import { newId } from "@/lib/id";
@@ -58,6 +60,50 @@ function chunk<T>(list: T[], size: number): T[][] {
     chunks.push(list.slice(i, i + size));
   }
   return chunks;
+}
+
+/**
+ * Removes ONLY the sample data made by resetAndReseed, keeping everything a
+ * person actually created (docs/DESIGN.md D-045).
+ *
+ * How sample rows are told apart from real ones: the seed stamps rows
+ * syncStatus "local" and writes them NO outbox entry, by design. A real row
+ * also starts "local" — but it always has an outbox entry until it uploads, and
+ * becomes "synced" afterwards. So "local AND nothing in the outbox" is exactly
+ * the sample data. A sample project that has a real inspection inside it is kept.
+ *
+ * This is a HARD delete, unlike every other delete in the app: sample rows never
+ * reached the server, so there is nothing to tombstone. Development builds only.
+ */
+export async function removeSampleData(): Promise<{ projects: number; inspections: number }> {
+  if (!isDbAvailable()) return { projects: 0, inspections: 0 };
+  const db = requireDb();
+
+  return db.transaction(async (tx) => {
+    const queued = new Set((await tx.select({ id: outbox.entityId }).from(outbox)).map((r) => r.id));
+    const isSample = (row: { id: string; syncStatus: string }) =>
+      row.syncStatus === "local" && !queued.has(row.id);
+
+    const sampleInspectionIds = (await tx.select().from(inspections))
+      .filter(isSample)
+      .map((i) => i.id);
+    for (const ids of chunk(sampleInspectionIds, 100)) {
+      await tx.delete(answers).where(inArray(answers.inspectionId, ids));
+      await tx.delete(attachments).where(inArray(attachments.inspectionId, ids));
+      await tx.delete(inspections).where(inArray(inspections.id, ids));
+    }
+
+    // A sample project goes only if nothing (real) is left inside it.
+    const stillUsed = new Set((await tx.select().from(inspections)).map((i) => i.projectId));
+    const sampleProjectIds = (await tx.select().from(projects))
+      .filter((p) => isSample(p) && !stillUsed.has(p.id))
+      .map((p) => p.id);
+    for (const ids of chunk(sampleProjectIds, 100)) {
+      await tx.delete(projects).where(inArray(projects.id, ids));
+    }
+
+    return { projects: sampleProjectIds.length, inspections: sampleInspectionIds.length };
+  });
 }
 
 /**

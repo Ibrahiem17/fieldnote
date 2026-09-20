@@ -10,7 +10,16 @@ import { Swipeable } from "react-native-gesture-handler";
 import { useFocusEffect, useRouter } from "expo-router";
 import { FlashList } from "@shopify/flash-list";
 
-import { Screen, Text, Card, Button, EmptyState, Badge, SyncStatusDot } from "@/components";
+import {
+  Screen,
+  Text,
+  Card,
+  Button,
+  EmptyState,
+  Badge,
+  SyncStatusDot,
+  UploadBanner,
+} from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { listInspections, softDeleteInspection } from "@/repositories/inspections";
 import { listProjects } from "@/repositories/projects";
@@ -97,6 +106,7 @@ export default function InspectionsScreen() {
 
   return (
     <Screen padded={false}>
+      <UploadBanner />
       <View style={{ padding: theme.spacing.md, gap: theme.spacing.sm }}>
         <FilterRow
           options={[

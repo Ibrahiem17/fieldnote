@@ -10,7 +10,7 @@ import { useFocusEffect } from "expo-router";
 
 import { Screen, Text, Card, Button } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
-import { resetAndReseed } from "@/db/seed";
+import { resetAndReseed, removeSampleData } from "@/db/seed";
 import { TEMPLATE_DEFS } from "@/db/templateDefs";
 import { listProjects } from "@/repositories/projects";
 import { listInspections } from "@/repositories/inspections";
@@ -56,6 +56,7 @@ export default function SettingsScreen() {
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [reseeding, setReseeding] = useState(false);
+  const [removingSamples, setRemovingSamples] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -93,6 +94,36 @@ export default function SettingsScreen() {
       refreshCounts().catch((e) => console.error(e));
     }, [refreshCounts]),
   );
+
+  const handleRemoveSamples = () => {
+    Alert.alert(
+      "Remove sample data?",
+      "Deletes the fake projects and inspections made by Reset & Reseed. Anything you created yourself is kept.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            setRemovingSamples(true);
+            try {
+              const result = await removeSampleData();
+              await refreshCounts();
+              Alert.alert(
+                "Done",
+                `Removed ${result.inspections} sample inspections and ${result.projects} sample projects.`,
+              );
+            } catch (e) {
+              console.error(e);
+              Alert.alert("Couldn't remove sample data", String(e));
+            } finally {
+              setRemovingSamples(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const handleReseed = () => {
     Alert.alert(
@@ -348,6 +379,14 @@ export default function SettingsScreen() {
             loading={reseeding}
             onPress={handleReseed}
           />
+          <View style={{ marginTop: theme.spacing.sm }}>
+            <Button
+              label="Remove sample data (keeps your work)"
+              variant="secondary"
+              loading={removingSamples}
+              onPress={handleRemoveSamples}
+            />
+          </View>
         </Card>
         ) : null}
 
