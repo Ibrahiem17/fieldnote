@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Pressable, Alert, Linking, Image, Switch } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { Text, TwoToneText, Rise, Input, Button, BusyButton, useToast } from "@/components";
+import { Text, TwoToneText, Rise, Chip, Input, Button, BusyButton, useToast } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { getAnswers, saveAnswer } from "@/repositories/answers";
 import {
@@ -189,32 +189,16 @@ const FieldBody = React.memo(function FieldBody(props: {
             {(field.options ?? []).map((o: { value: string; label: string }) => {
               const active = v === o.value;
               return (
-                <Pressable
+                <Chip
                   key={o.value}
+                  label={o.label}
+                  selected={active}
                   onPress={() => {
                     onScheduleSave(field.key, o.value);
                     void onImmediateSave(field.key, o.value);
                   }}
-                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                  accessibilityRole="button"
                   accessibilityLabel={`${field.label}: ${o.label}`}
-                  accessibilityState={{ selected: active }}
-                  style={{
-                    paddingHorizontal: theme.spacing.sm,
-                    paddingVertical: theme.spacing.xs,
-                    borderRadius: theme.radius.lg,
-                    borderWidth: 1,
-                    borderColor: active ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: active ? theme.colors.primary + "22" : theme.colors.surface,
-                  }}
-                >
-                  <Text
-                    variant="caption"
-                    style={{ color: active ? theme.colors.primary : theme.colors.textMuted }}
-                  >
-                    {o.label}
-                  </Text>
-                </Pressable>
+                />
               );
             })}
           </View>

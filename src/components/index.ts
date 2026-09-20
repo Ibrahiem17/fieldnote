@@ -5,6 +5,7 @@ export { Screen } from "./Screen";
 export { Text, TwoToneText, TextToneProvider } from "./Text";
 export { PressableScale } from "./PressableScale";
 export { Rise } from "./Rise";
+export { Chip } from "./Chip";
 export { Icon } from "./Icon";
 export { GradientFill } from "./GradientFill";
 export { Button } from "./Button";

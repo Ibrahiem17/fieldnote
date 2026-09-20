@@ -1716,3 +1716,6 @@ The root `View` is purple; the list sits in a rounded-top sheet (`borderTopLeftR
 
 ### Other edited screens
 `projects/[id].tsx` puts the project's details in a purple `Card tone="primary"`. `settings.tsx` gives every card an `enterIndex` so they rise in order; the first two are purple and amber, and the duplicate body heading is removed. `LoginScreen.tsx` uses `TwoToneText`. `FormRenderer.tsx` draws each section title with `TwoToneText` and wraps each section in `Rise`.
+
+### `src/components/Chip.tsx` (D-046 addendum)
+`Props = Pick<PressableProps, "onPress" | "hitSlop"> & { label, selected, accessibilityLabel? }` — take just two props from the built-in pressable's list, plus our own. `minHeight: 44` keeps the tap target finger-sized. `backgroundColor: selected ? colors.primaryDeep : colors.surface` — deep purple when chosen, light otherwise; the text flips to white (`onPrimary`) or charcoal (`ink`) to match. `selected ? null : neutralShadow` — only unselected chips get the soft shadow. `accessibilityState={{ selected }}` tells a screen reader which one is chosen. It is built on `PressableScale`, so it shrinks slightly while pressed.

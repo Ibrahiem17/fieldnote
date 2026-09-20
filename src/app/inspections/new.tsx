@@ -5,10 +5,10 @@
 // per-template fields are Phase 2's form engine (Section 1.3.2).
 
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, View } from "react-native";
+import { Alert, ScrollView, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { Screen, Text, Input, Button } from "@/components";
+import { Screen, Text, Chip, Rise, Input, Button } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { listProjects } from "@/repositories/projects";
 import { listTemplates } from "@/repositories/templates";
@@ -79,6 +79,7 @@ export default function NewInspectionScreen() {
         contentContainerStyle={{ gap: theme.spacing.md }}
         keyboardShouldPersistTaps="handled"
       >
+        <Rise index={0}>
         <Input
           label="Title"
           value={title}
@@ -90,9 +91,10 @@ export default function NewInspectionScreen() {
           placeholder="e.g. North wing roof check"
           autoFocus
         />
+        </Rise>
 
-        <View style={{ gap: theme.spacing.xs }}>
-          <Text variant="label" muted>
+        <Rise index={1} style={{ gap: theme.spacing.xs }}>
+          <Text variant="label" upper muted>
             Project
           </Text>
           {projects.length === 0 ? (
@@ -113,10 +115,10 @@ export default function NewInspectionScreen() {
               onSelect={setProjectId}
             />
           )}
-        </View>
+        </Rise>
 
-        <View style={{ gap: theme.spacing.xs }}>
-          <Text variant="label" muted>
+        <Rise index={2} style={{ gap: theme.spacing.xs }}>
+          <Text variant="label" upper muted>
             Type of inspection
           </Text>
           <ChipPicker
@@ -124,7 +126,7 @@ export default function NewInspectionScreen() {
             selected={templateId}
             onSelect={(key) => setTemplateId(key === templateId ? undefined : key)}
           />
-        </View>
+        </Rise>
 
         <Input
           label="Inspector name (optional)"
@@ -152,31 +154,15 @@ function ChipPicker({
   return (
     // Wraps onto new lines (rather than scrolling sideways) so every choice is
     // visible at once — a clipped chip looks like it isn't there.
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing.xs }}>
-      {options.map((opt) => {
-          const active = opt.key === selected;
-          return (
-            <Pressable
-              key={opt.key}
-              onPress={() => onSelect(opt.key)}
-              style={{
-                paddingHorizontal: theme.spacing.sm,
-                paddingVertical: theme.spacing.xs,
-                borderRadius: theme.radius.lg,
-                borderWidth: 1,
-                borderColor: active ? theme.colors.primary : theme.colors.border,
-                backgroundColor: active ? theme.colors.primary + "22" : theme.colors.surface,
-              }}
-            >
-              <Text
-                variant="caption"
-                style={{ color: active ? theme.colors.primary : theme.colors.textMuted }}
-              >
-                {opt.label}
-              </Text>
-            </Pressable>
-          );
-      })}
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing.sm }}>
+      {options.map((opt) => (
+        <Chip
+          key={opt.key}
+          label={opt.label}
+          selected={opt.key === selected}
+          onPress={() => onSelect(opt.key)}
+        />
+      ))}
     </View>
   );
 }
