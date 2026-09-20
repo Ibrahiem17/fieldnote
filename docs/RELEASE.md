@@ -7,7 +7,7 @@ honest: "done" means built **and** looked at on a real phone; anything else is l
 
 | Item | State |
 | --- | --- |
-| Android production build (APK, signed with the project's EAS keystore) | Built with `eas build --profile production`; the previous build (1.0.0) was installed and run on a Samsung A51 with Metro off. The 1.1.0 build's own check is recorded in `TEST-RESULTS-DEVICE.md`. |
+| Android production build (APK, signed with the project's EAS keystore) | Built with `eas build --profile production`; the previous build (1.0.0) was installed and run on a Samsung A51 with Metro off. The 1.1.0 build (versionCode 4) was installed on the A51 and checked as recorded in `TEST-RESULTS-DEVICE.md`. |
 | App icon (hard hat + check), adaptive icon layers, themed (monochrome) icon | Drawn by `scripts/make-brand-assets.mjs` (`npm run assets:brand`); guarded by `brandAssets.test.ts`. |
 | Splash screen (cream, the app mark, fades out once fonts and sign-in check are ready) | Configured via `expo-splash-screen` in `app.json`; needs a native build — see the device results. |
 | In-app "How to use" tab, opens once on first launch | Words in `src/lib/guideContent.ts` (tested for developer jargon); one-time flag in `src/lib/guideSeen.ts`. |
