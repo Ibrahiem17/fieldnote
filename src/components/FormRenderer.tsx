@@ -90,14 +90,49 @@ const FieldComponent = React.memo(function FieldComponent(props: {
         />
       );
     case "select":
+      // Tappable choices, not free text: the stored value must be exactly one
+      // of the template's option `value`s (visibleIf and validation both
+      // compare against them). A text box let a phone keyboard turn "poor"
+      // into "Poor" and silently hide the dependent field (docs/DESIGN.md D-034).
       return (
-        <Input
-          label={field.label}
-          value={String(v)}
-          placeholder={field.options?.map((o: any) => o.label).join(", ")}
-          onChangeText={(t) => onScheduleSave(field.key, t)}
-          onBlur={() => onImmediateSave(field.key, v)}
-        />
+        <View style={{ gap: theme.spacing.xs }}>
+          <Text variant="label" muted>
+            {field.label}
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing.xs }}>
+            {(field.options ?? []).map((o: { value: string; label: string }) => {
+              const active = v === o.value;
+              return (
+                <Pressable
+                  key={o.value}
+                  onPress={() => {
+                    onScheduleSave(field.key, o.value);
+                    void onImmediateSave(field.key, o.value);
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${field.label}: ${o.label}`}
+                  accessibilityState={{ selected: active }}
+                  style={{
+                    paddingHorizontal: theme.spacing.sm,
+                    paddingVertical: theme.spacing.xs,
+                    borderRadius: theme.radius.lg,
+                    borderWidth: 1,
+                    borderColor: active ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: active ? theme.colors.primary + "22" : theme.colors.surface,
+                  }}
+                >
+                  <Text
+                    variant="caption"
+                    style={{ color: active ? theme.colors.primary : theme.colors.textMuted }}
+                  >
+                    {o.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       );
     case "multiselect":
       return (
@@ -293,10 +328,16 @@ const FieldComponent = React.memo(function FieldComponent(props: {
                   return;
                 }
                 if ((pos as any).error) {
-                  // fallback dummy when native not available
-                  const dummy = { latitude: 12.34, longitude: 56.78, accuracy: 9999 };
-                  onScheduleSave(field.key, dummy);
-                  await onImmediateSave(field.key, dummy);
+                  // Never store made-up coordinates as if they were a real
+                  // reading (the old code saved 12.34 / 56.78 here). Tell the
+                  // person and save nothing (docs/DESIGN.md D-036).
+                  const reason = (pos as any).error;
+                  Alert.alert(
+                    "Couldn't get your location",
+                    reason === "timeout"
+                      ? "No GPS fix within 10 seconds. Move near a window or outside and try again."
+                      : "Location isn't available on this device right now. Nothing was saved — try again.",
+                  );
                   return;
                 }
 
@@ -537,7 +578,7 @@ export default function FormRenderer({
           onSave={async (base64: string) => {
             // write base64 to file if FileSystem is available, then create attachment
             try {
-              let localUri = "file:///signature-placeholder.png";
+              let localUri: string;
               let byteSize: number | null = null;
               try {
                 const { Directory, File, Paths, EncodingType } = await import("expo-file-system");
@@ -548,8 +589,13 @@ export default function FormRenderer({
                 dest.write(base64, { encoding: EncodingType.Base64 });
                 localUri = dest.uri;
                 byteSize = dest.size ?? null;
-              } catch {
-                // fallback: keep placeholder
+              } catch (writeErr) {
+                // Never create an attachment that points at a file that
+                // doesn't exist (the old code saved a "placeholder" URI here
+                // and sync would later try to upload it) — docs/DESIGN.md D-037.
+                console.error(writeErr);
+                Alert.alert("Couldn't save signature", "The signature wasn't saved. Please try again.");
+                return;
               }
 
               const att = await createAttachment({

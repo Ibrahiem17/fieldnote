@@ -42,10 +42,14 @@ export async function takePhotoAndCompress(
     const TARGET_LONG_EDGE = 1600;
     const QUALITY = 0.7;
 
-    // Resize (long edge) and compress in one pass.
+    // Resize the LONG edge and compress in one pass. Resizing by width alone
+    // (the earlier code) turned a portrait shot into 1600x2844 — a 2844px long
+    // edge and ~300 KB files, measured on a real A51 (docs/DESIGN.md D-035).
+    const asset = (res as any)?.assets?.[0];
+    const isPortrait = asset?.width && asset?.height ? asset.height > asset.width : false;
     const manipResult = await ImageManipulator.manipulateAsync(
       uri,
-      [{ resize: { width: TARGET_LONG_EDGE } }],
+      [{ resize: isPortrait ? { height: TARGET_LONG_EDGE } : { width: TARGET_LONG_EDGE } }],
       { compress: QUALITY, format: ImageManipulator.SaveFormat.JPEG },
     );
 

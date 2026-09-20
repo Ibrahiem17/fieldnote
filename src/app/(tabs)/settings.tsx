@@ -5,7 +5,7 @@
 // database right now, useful when eyeballing TC-11 and TC-17.
 
 import { useCallback, useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert, ScrollView, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 
 import { Screen, Text, Card, Button } from "@/components";
@@ -107,7 +107,7 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
-      <View style={{ gap: theme.spacing.md }}>
+      <ScrollView contentContainerStyle={{ gap: theme.spacing.md, paddingBottom: theme.spacing.lg }}>
         <Text variant="title">Settings</Text>
 
         <Card>
@@ -333,7 +333,7 @@ export default function SettingsScreen() {
             Offline-first field inspection app. Foundation, navigation & offline data layer.
           </Text>
         </Card>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }

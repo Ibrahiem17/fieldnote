@@ -238,3 +238,17 @@ See `docs/SYNC.md` for the full, evolving sync protocol, and `docs/DESIGN.md` D-
 **Why this project's crash reporting exists in the code but genuinely can't be turned on here.** Setting one up for real means signing up for an account with a real company and being handed a private key (a "DSN") that says "reports go here, into my project." That's not something that can happen inside an automated coding session — it needs an actual person, actually creating an actual account. So the code that WOULD send a report is fully built and sitting ready, but with no key to send reports to, it simply stays quiet — not broken, just not switched on yet.
 
 **OTA updates versus a new store build, in plain words.** Sometimes fixing a bug only means changing this app's own JavaScript — and that kind of fix can be pushed straight to everyone's phones within minutes, without them ever visiting an app store. Other changes — adding a new native capability, changing a permission the app asks for — physically can't work that way, because they need a new copy of the underlying native app itself, which only an app store can hand out, and which takes real review time. Knowing which kind of change you're making decides how fast a fix can actually reach someone.
+
+## The first time it ran on a real phone — what a phone finds that a computer never will
+
+Everything before this was tested on a computer pretending to be a phone. The first real run, on a Samsung A51, found six problems in an hour, and every one was invisible until then.
+
+**A phone keyboard is not a computer keyboard.** It capitalises the first letter of what you type. The form had a box where you were meant to type "poor", the phone turned it into "Poor", and the app quietly decided that wasn't a match — so a follow-up question never appeared. No error, nothing. The fix was to stop asking people to type an answer that has only three valid values: they now tap one of three buttons.
+
+**A screen is a fixed size.** A settings page that fit fine in a tall browser window simply ran off the bottom of the phone, with the important button unreachable.
+
+**"Make it small" needs a real definition.** The rule said photos should be at most 1600 pixels on the long side. The code shrank the *width* to 1600 — but a phone held upright is tall, so the height stayed huge. Measuring real photos showed 1600 × 2844.
+
+**The worst kind of bug is one that invents data.** When getting your location failed, the app didn't say so — it quietly stored a made-up place and showed it as if it were real. Same with the signature: if saving failed, it recorded a picture that didn't exist. In an inspection record, a fake location or a missing signature is worse than an honest "that didn't work, try again". Both now say so.
+
+**A button you can't see isn't a button.** The signature screen worked but its "Save" button never showed up, because it lived inside a small web page that didn't draw properly on the phone. It now has three ordinary buttons along the bottom.

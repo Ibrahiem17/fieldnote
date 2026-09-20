@@ -337,3 +337,71 @@ Every screen goes through a repository; every repository goes through Drizzle; n
 - **`eas.json` — written, never run.** A `production` build profile exists, and `app.json` gained `android.versionCode`/`ios.buildNumber` (both previously absent — genuinely missing, genuinely addable with no external account, since they're just numbers a build tool reads from a config file). Permission strings were re-checked, not redone — `NSCameraUsageDescription`/`NSLocationWhenInUseUsageDescription` were already specific (an earlier phase already avoided the plan's own named risk, "iOS rejects vague ones"). **`eas build` itself cannot run at all in this sandbox** — it needs a real Expo account login and uploads to Expo's build servers with real Apple/Google signing credentials, none of which can exist here. This is a different category of blocker than Day 3's "no device" — it's "no account, and no autonomous session can create one" — but the honest label is the same: built, not run, not verified.
 - **Store distribution — not attempted at all, and correctly so.** Play internal testing needs a one-time $25 Google Play developer registration; TestFlight needs a $99/year Apple Developer Program membership. Both are real financial transactions tied to a real identity — flatly outside what an autonomous coding session should ever attempt on a user's behalf, regardless of technical feasibility. Recorded as blocked for that reason, not attempted and rolled back.
 - **What this day actually proves, stated plainly:** this project now has a real, currently-green CI pipeline checking every push — a genuinely new, load-bearing capability, not a documentation exercise. The other three pieces (Sentry, EAS, distribution) are each one real account signup away from working, with the code already in place to use them the moment that account exists — which is a different, and more honest, status than either "done" or "not started."
+
+## D-033 — First real-device run (Samsung A51): dev build, and a bug only a phone screen exposed
+
+**Context.** After Phase 4, the user attached a physical Samsung A51 (SM-A515F, Android 13, arm64). This is the first time in the whole project the app ran on real hardware; every earlier "Blocked — no device" entry (D-010, D-026, D-029, D-030, D-032) traces back to that gap.
+
+**Build setup (what was missing, found by reading, not by failing).**
+- `expo-dev-client` was not installed, though `eas.json`'s development profile sets `developmentClient: true` — added.
+- The development profile had no `android.buildType: "apk"`; the default (AAB) cannot be sideloaded over USB — added.
+- `app.json` had no `android.package` / `ios.bundleIdentifier` — set to `com.ibrahiem17.fieldnote`. **This is permanent once published to Play.**
+- `.env` is gitignored, so an EAS cloud build would have shipped with no Supabase URL/key (the first build was cancelled before it finished for exactly this reason). The two `EXPO_PUBLIC_SUPABASE_*` values (public anon key only — never the service_role key) are now EAS environment variables (plain-text visibility, development + production).
+- `SENTRY_DISABLE_AUTO_UPLOAD=true` on the development profile only: no Sentry org/project/token exists yet, so source-map upload must not run.
+- Dev client connects over `adb reverse tcp:8081 tcp:8081` (USB), not LAN, so no firewall/Wi-Fi dependency.
+
+**Bug found on the device: Settings was not scrollable.** `src/app/(tabs)/settings.tsx` rendered its cards in a plain `View`. On a phone-height screen everything below the Sync card — including "Reset & Reseed Database" — was cut off and unreachable. It never showed in the web preview (a tall browser window fits it). Fix: outer `View` → `ScrollView` (`contentContainerStyle` keeps the same gap). Verified on the phone: the swipe now scrolls and the button is reachable.
+
+**Two stale strings noticed, NOT fixed (out of scope, cosmetic):** the reseed confirmation dialog says "3 templates" (only 2 exist; the completion dialog correctly says 2) and the About card still says "Fieldnote — Phase 1".
+
+**Real-device results so far** — see `docs/TEST-RESULTS-DEVICE.md`.
+
+## D-034 — `select` fields were free-text boxes; a phone keyboard silently broke `visibleIf`
+
+**Found on the A51, not before.** `FormRenderer.tsx`'s `select` case rendered a plain `Input` with the option labels as placeholder text. The stored value has to equal an option `value` exactly (`"poor"`), because `visibleIf` (`visibility.ts`) and validation both compare against it with strict equality. Android capitalises the first letter of a text box, so typing "poor" stored `"Poor"`, `["fair","poor"].includes("Poor")` was false, and the dependent "Photograph the damage" field stayed hidden — with no error anywhere. The web preview's keyboard never capitalises, which is why nothing caught it in Phases 2–4.
+
+**Fix.** `select` now renders tappable choice chips (same look as the Status chips). Tapping stores the option's real `value` and saves immediately; free text is no longer possible for this type. Verified live on the phone: before, no chip highlighted (the stored "Poor" matched nothing); after tapping **Poor**, "Photograph the damage / Add photo" appeared.
+
+**Alternatives rejected.** `autoCapitalize="none"` on the input: still lets users type "pool" or "Fair " and silently fail the match. Case-insensitive comparison in `isFieldVisible`: papers over one symptom and leaves free text in a field that is supposed to be a closed set.
+
+**Not fixed:** existing answers stored with the wrong case (e.g. the two throwaway "Test" inspections on the phone) match no chip until re-tapped. Fine for dev data; a shipped app with real users would need a one-off migration.
+
+**Correction to the Day 7 note (`TEST-RESULTS-PHASE-4.md`).** The "inconclusive, flaky browser text input" result for conditional visibility was very probably this bug (a typed value not matching the option value exactly), not browser flakiness. Recorded here; the test file's own row is annotated.
+
+**Temporary test template.** `templateDefs.ts` also carries an uncommitted "DEVICE TEST (temp)" template (a `gps` field + a `signature` field) because no shipped template uses either type, so they can't be reached from the UI. Must be removed before any commit.
+
+**Connection notes for whoever repeats this.** The USB link was unreliable (adb flipped `device`/`offline`, then vanished); wireless debugging worked with no pairing step (`adb connect <ip:port>` from `adb mdns services`). `adb reverse` must be re-run after every reconnect or the dev client loses Metro ("Could not load bundle").
+
+## D-035 — Photo "long edge 1600" was actually width-only; measured on the A51
+
+**Measured on a real phone (first time this was ever possible).** Two photos taken in the app on a Samsung A51 were saved at 300,591 and 178,847 bytes; both decoded (JPEG header) to **1600 × 2844 px**. `src/lib/media.ts` commented "long edge 1600" but called `manipulateAsync` with `resize: { width: 1600 }`, so a portrait photo keeps its aspect ratio and ends up with a 2844 px long edge (~4.5 MP). Compression is a fixed quality (0.7), not a size target, so file size varies with scene detail — the plan's "under 300 KB" was never guaranteed by construction, only true for lucky scenes. 300,591 B is 300.6 kB (decimal) / 293.5 KiB: over by the 1000-byte definition, under by the 1024 one — borderline either way.
+
+**Fix.** Resize the long edge: `{ height: 1600 }` for portrait (from the camera asset's own width/height), `{ width: 1600 }` otherwise. Expected result ~900 × 1600 (~1.4 MP, roughly a third of the pixels). **Not yet re-measured after the fix** — a new portrait photo is needed; result to be added to `TEST-RESULTS-DEVICE.md`.
+
+**Still not size-targeted.** If a hard 300 KB cap matters, the honest options are lowering quality for large results or a second pass; not done — measure first (the plan's own rule).
+
+## D-036 — Failed GPS capture silently saved FAKE coordinates
+
+**Found on the A51.** `FormRenderer.tsx`'s `gps` field, on any error from `getLocationWithTimeout` other than `permission-denied` (timeout, `no-native`, or an unexpected JS error), saved `{ latitude: 12.34, longitude: 56.78, accuracy: 9999 }` as if it were the real reading — a leftover "fallback dummy when native not available" from early Phase 2. On the phone, a first tap failed (a stale-Metro-bundle "unknown module" error inside the lazy `expo-location` import), the failure was swallowed as `no-native`, and the inspection then displayed the fake position with no warning. In an inspection record a fabricated site location is worse than an error.
+
+**Fix.** Any non-permission error now shows an alert ("no GPS fix within 10 seconds…" for timeout, "location isn't available…" otherwise) and saves nothing. The permission-denied path is unchanged (alert with an Open Settings action). No other `dummy`/placeholder values exist in `src/`.
+
+**Related, left alone:** `media.ts` returns `accuracy: coords.accuracy ?? 9999` when the OS reports no accuracy — a missing-accuracy sentinel, not a fake position; noted, not changed.
+
+**Not yet verified:** a real GPS fix (the only value seen so far was the fake one). See `TEST-RESULTS-DEVICE.md`.
+
+## D-037 — Signature pad had no way to confirm, and a failed save created a fake attachment
+
+**Found on the A51.** (1) `SignaturePad.tsx` passed `webStyle` that hid the signature library's own footer (`.m-signature-pad--footer { display: none }`) — the only place its Clear/Save buttons live — and rendered no replacement, so a signature could be drawn but never confirmed. (2) In `FormRenderer.tsx`'s signature `onSave`, a failed file write was swallowed by an empty `catch` and the code went on to create an attachment with `localUri = "file:///signature-placeholder.png"` — a record pointing at a file that doesn't exist, which sync would later try to upload. Same anti-pattern as D-036 (silent fake data on failure).
+
+**Fix.** The library footer is left visible (Clear / Save). A failed write now alerts ("Couldn't save signature") and creates no attachment.
+
+**Why neither was seen earlier:** no shipped template has a `signature` field and the web preview can't run the canvas, so this code path had never executed anywhere before the temp device-test template.
+
+**Not yet verified on device:** that the footer's Save button appears and produces a saved PNG. See `TEST-RESULTS-DEVICE.md`.
+
+**D-037 correction (same day).** Un-hiding the library's footer did NOT make Save appear on the phone — the pad drew fine full-screen but showed no buttons at all (found by looking at the real screen, not assumed). Final fix: the library footer stays hidden and `SignaturePad.tsx` renders its own native **Cancel / Clear / Save** row (reusing `Button`, padded by the safe-area insets), driving the library through its ref (`clearSignature()`, `readSignature()` → `onOK`). Lesson: a fix that only changes CSS inside a WebView is unverifiable without the device; native buttons don't depend on the WebView layout.
+
+**D-037 note — seeded data and sync (found while verifying the signature on the A51).** `resetAndReseed()` writes inspections directly, with no outbox entries (by design — it's a dev fixture tool). Editing a seeded inspection therefore queues child outbox rows (`answer`, `attachment`) whose parent inspection the server has never seen; they fail with `attachments_inspection_id_fkey` / `answers_inspection_id_fkey`, retry with exponential backoff, and eventually dead-letter. Real inspections created through `createInspection` do get an outbox row, so real users don't hit this. Consequence for testing: sync/airplane-mode tests need an inspection created via **New Inspection**, not a seeded one. Not changed.
+
+**D-034 follow-up — temp template removed.** The "DEVICE TEST (temp)" template (gps + signature + text) was used to exercise GPS and signature on the A51 and was deleted from `templateDefs.ts` before the commit; `templateDefs.ts` matches the previous commit again. The phone's local database still holds the seeded copy until its next reseed. Consequence worth knowing: **no shipped template uses `gps` or `signature`**, so those two field types remain unreachable from the shipped UI (the code paths are now device-verified, D-036/D-037).

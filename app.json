@@ -10,6 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "buildNumber": "1",
+      "bundleIdentifier": "com.ibrahiem17.fieldnote",
       "infoPlist": {
         "NSCameraUsageDescription": "FieldNote needs camera access to capture inspection photos.",
         "NSLocationWhenInUseUsageDescription": "FieldNote needs your location to stamp inspections with GPS coordinates."
@@ -24,9 +25,12 @@
       },
       "predictiveBackGestureEnabled": false,
       "versionCode": 1,
+      "package": "com.ibrahiem17.fieldnote",
       "permissions": [
         "CAMERA",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK"
       ]
     },
     "web": {
@@ -40,6 +44,13 @@
       "expo-background-fetch",
       "expo-sharing",
       "@sentry/react-native"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c2935941-8e2b-4708-a368-1dedfca38c2a"
+      }
+    },
+    "owner": "ibrahiem17"
   }
 }

@@ -1516,3 +1516,36 @@ Nothing new syntactically here — it's the same function that used to live insi
 `const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN;` — reads an environment variable once, at the top of the file. `EXPO_PUBLIC_` is a naming convention Expo itself looks for — anything prefixed that way gets baked into the app bundle at build time (the same reasoning `.env.example`'s Supabase keys already explain).
 
 `if (!dsn) return;` at the top of both `initSentry()` and `reportError()` — an **early return**: if there's no DSN, stop the function immediately, before doing anything else. This is the entire mechanism that makes Sentry "gated" — no `if/else` branching logic elsewhere in the app ever has to ask "is Sentry configured?" — the two functions themselves already know, and simply do nothing when it isn't.
+
+---
+
+## Real-device fixes (first run on a Samsung A51) — D-033 to D-037
+
+### `src/components/FormRenderer.tsx` — `select` is now tappable choices
+`case "select":` — a `switch` branch: this block runs when a field's `type` is `"select"`. It used to draw a text box; now it draws one small rounded button per option.
+`(field.options ?? []).map((o) => ...)` — loop over the template's list of options (`??` means "or an empty list if there are none"). Each `o` is `{ value: "poor", label: "Poor" }`: `value` is what gets stored, `label` is what a person reads.
+`const active = v === o.value;` — is this option the currently stored answer? `===` means "exactly equal, including capital letters" — which is the whole reason this change exists: a text box let the phone turn "poor" into "Poor", which is *not* equal, so the dependent photo field never appeared.
+`onScheduleSave(field.key, o.value); void onImmediateSave(field.key, o.value);` — tell the form the new answer, and also save it to the database right now. `void` says "I'm deliberately not waiting for this to finish."
+`accessibilityRole="button"` / `accessibilityState={{ selected: active }}` — what a screen reader announces: "Poor, button, selected".
+
+### `src/lib/media.ts` — resize the LONG edge
+`const isPortrait = asset?.width && asset?.height ? asset.height > asset.width : false;` — `asset` is what the camera returned. `?.` means "if it exists". A photo is portrait if it's taller than wide.
+`resize: isPortrait ? { height: 1600 } : { width: 1600 }` — a `condition ? a : b` picks one of two options. The old code always used `{ width: 1600 }`: for an upright photo that keeps the shape, so the height became 2844. Now whichever side is longer becomes 1600.
+
+### `FormRenderer.tsx` (GPS) — an error is shown, never disguised as data
+Before: any failure other than "permission denied" saved `{ latitude: 12.34, longitude: 56.78 }`. Now: `Alert.alert("Couldn't get your location", ...)` then `return;` — show a message and stop. `return;` inside the handler is what guarantees nothing is saved after it.
+
+### `src/components/SignaturePad.tsx` — our own buttons
+`const padRef = React.useRef<any>(null);` — a `ref` is a handle to a component you rendered, so you can call its methods later. `useSafeAreaInsets()` gives the sizes of the phone's notch and gesture bar so buttons aren't hidden behind them.
+`ref={padRef}` — attach the handle to the signature drawing area.
+`padRef.current?.clearSignature()` / `padRef.current?.readSignature()` — call the library's own "wipe the canvas" and "give me the picture" methods. `readSignature()` triggers the library's `onOK` callback with the image, which is what saves the file.
+`webStyle={... display: none ...}` — the library draws its own Clear/Save buttons inside a hidden web page; on the real phone they didn't appear, so they're hidden on purpose and replaced by our three real buttons (Cancel / Clear / Save).
+
+### `FormRenderer.tsx` (signature save) — no fake files
+`} catch (writeErr) { ... Alert.alert(...); return; }` — if writing the file fails, tell the person and stop. Before, an empty `catch` let the code carry on and record a picture at a path that didn't exist.
+
+### `src/app/(tabs)/settings.tsx` — scrolling
+`<ScrollView contentContainerStyle={...}>` replaces a plain `<View>`. A `View` is a fixed box: anything taller than the screen is just cut off. A `ScrollView` lets you swipe.
+
+### `eas.json`, `app.json` — getting the app onto a phone
+`"buildType": "apk"` — an APK is a file you can install straight from a cable; the default type (AAB) can only be given to the Play Store. `"package": "com.ibrahiem17.fieldnote"` — the app's permanent unique name on Android. `"SENTRY_DISABLE_AUTO_UPLOAD": "true"` — skip a step that needs an account we don't have yet.
