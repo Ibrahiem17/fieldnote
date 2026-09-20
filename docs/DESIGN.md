@@ -405,3 +405,37 @@ Every screen goes through a repository; every repository goes through Drizzle; n
 **D-037 note — seeded data and sync (found while verifying the signature on the A51).** `resetAndReseed()` writes inspections directly, with no outbox entries (by design — it's a dev fixture tool). Editing a seeded inspection therefore queues child outbox rows (`answer`, `attachment`) whose parent inspection the server has never seen; they fail with `attachments_inspection_id_fkey` / `answers_inspection_id_fkey`, retry with exponential backoff, and eventually dead-letter. Real inspections created through `createInspection` do get an outbox row, so real users don't hit this. Consequence for testing: sync/airplane-mode tests need an inspection created via **New Inspection**, not a seeded one. Not changed.
 
 **D-034 follow-up — temp template removed.** The "DEVICE TEST (temp)" template (gps + signature + text) was used to exercise GPS and signature on the A51 and was deleted from `templateDefs.ts` before the commit; `templateDefs.ts` matches the previous commit again. The phone's local database still holds the seeded copy until its next reseed. Consequence worth knowing: **no shipped template uses `gps` or `signature`**, so those two field types remain unreachable from the shipped UI (the code paths are now device-verified, D-036/D-037).
+
+## D-038 — No inspection created in the app could ever sync (template ids), plus a fake-photo fallback
+
+**Found by the airplane-mode test on the A51.** Reading the phone's outbox after reconnecting: the queued `inspection` insert had failed with `invalid input syntax for type uuid: "roof-inspection-v1"`, and its child `answer`/`attachment` inserts failed with `..._inspection_id_fkey` (the parent never arrived).
+
+**Root cause (two gaps that compound).**
+1. `seed.ts` used the template JSON's human slug (`"roof-inspection-v1"`) as the template row's database primary key (`id: t.id ?? newId()`), contradicting the rule already written in `CLAUDE.md` ("a template row's database `id` (UUID) is a different value from the JSON payload's own `id` slug"). But `inspections.template_id` is a **uuid foreign key** to `public.templates(id)` on the server, so any inspection referencing a slug fails to parse.
+2. No migration ever inserted a template row on the server, so even a valid UUID would have failed the foreign key. `syncPull.ts` doesn't pull templates either — they were assumed to exist on both sides.
+
+**Why nothing caught it for two phases.** Phase 3's live checks were scripts pushing rows with `template_id: null`, and no device ever ran the real create → push path end to end. "Phase 3 live-verified" was true for the sync mechanics (idempotency, conflicts, RLS) and false for "an inspection made in the app reaches the server". This is a correction to how that claim should be read.
+
+**Fix.** `TemplateDef` gains `dbId` — a fixed UUID per template, the same on every device; seeding and the web mock use it as the row id (the slug stays inside the JSON). New migration `supabase/migrations/20260920000001_seed_templates.sql` (generated from `templateDefs.ts`, idempotent `on conflict do nothing`) inserts the same rows on the server. **It must be run once by the project owner in the Supabase SQL editor** (clients have SELECT-only on `templates`, deliberately). `templateDefs.test.ts` (+5 tests, 27 total) fails if a `dbId` isn't a UUID / isn't unique / is the slug, or if the migration file stops matching the app's ids and schema JSON.
+
+**Consequence.** Existing local databases hold the old slug ids and stay unsyncable — reseed (dev data) or, for real users, a one-off migration. There are no real users.
+
+**Also fixed (same test, same anti-pattern as D-036/D-037).** `FormRenderer.tsx` "Add photo" created a fake attachment (`file:///placeholder.jpg`, 12,345 bytes, 800×600) whenever the result was `null` (the person **cancelled** the camera) or an error. Now: cancel does nothing; an error alerts and saves nothing. The camera itself failing to open offline is likely a dev-build artifact (modules are lazy-imported and fetched from Metro, which is unreachable in airplane mode) — unconfirmed; a production build bundles everything.
+
+**Not yet verified:** that an inspection now syncs. Needs the migration applied + a reseed + a fresh inspection; see `TEST-RESULTS-DEVICE.md`.
+
+## D-039 — The app can't create a project; seeded data can't sync; a dev button bridges the gap
+
+**Found while re-running the airplane test after D-038.** With template ids fixed, the inspection push failed one level up: `inspections_project_id_fkey` — the server had never received the inspection's project. Reason: `createProject` is called by nothing except tests. There is no "New Project" screen, so on a phone a project can only come from (a) `resetAndReseed()`, which by design writes **no outbox entries** (its header explains why: TC-17 would be unverifiable otherwise), or (b) a pull from the server, which can only contain projects some device pushed — and none can. So, as shipped, every inspection on a fresh install sits inside a project the server has never heard of.
+
+**Why it went unseen.** Phase 3's live verification used scripts that created their own rows through the RPC; nothing ran the create-project → create-inspection → sync chain in the app, because the app has no way to start the chain. The docs even describe "a colleague on a second phone might create a new project" — no screen makes that possible.
+
+**What was done.** A small dev button in Settings' Developer tools card, "Create test project (queues sync)", calls the real `createProject` (so it writes an outbox entry like a real user action). It's in the same card as Reset & Reseed and shares its "dev-only" status. **Verified on the A51:** created online → `sync_status = synced`, outbox 0, and the tester saw exactly one matching row in the Supabase `projects` table.
+
+**What was NOT done, deliberately.** No production "New Project" screen: the project is in a feature freeze and whether inspectors create their own projects or receive them is a product decision, not a bug fix. Options if wanted: (1) a minimal New Project form (name/client/address) calling `createProject` — small, and it makes the app's core loop self-contained; (2) make the seed write outbox entries — rejected as the default because it would flood the queue with ~510 rows and break TC-17's "exactly 3 rows" check; (3) leave as is and document — what the README now does.
+
+**Also corrected here (not a decision, a mistake of mine):** an earlier reading of the phone DB suggested answers had `null` values; the answers table stores text/number/json in three separate columns and I had only queried the json one. No bug.
+
+**Cosmetic fixes in the same commit:** the reseed dialog now counts templates from `TEMPLATE_DEFS` (it said "3" while seeding 2); the About card says v1.0.0 instead of "Phase 1".
+
+**Tests added (no device needed):** `reportHtml.test.ts` — 9 tests on the report's HTML builder (Not-recorded styling, HTML escaping, no empty Photos section, location block, missing project). Mutation-checked: breaking the `<` escape made exactly one test fail. These cover the data → HTML logic behind TC-03/05/07; whether a PDF actually renders and shares still needs the phone.

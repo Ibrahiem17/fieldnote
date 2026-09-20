@@ -252,3 +252,11 @@ Everything before this was tested on a computer pretending to be a phone. The fi
 **The worst kind of bug is one that invents data.** When getting your location failed, the app didn't say so — it quietly stored a made-up place and showed it as if it were real. Same with the signature: if saving failed, it recorded a picture that didn't exist. In an inspection record, a fake location or a missing signature is worse than an honest "that didn't work, try again". Both now say so.
 
 **A button you can't see isn't a button.** The signature screen worked but its "Save" button never showed up, because it lived inside a small web page that didn't draw properly on the phone. It now has three ordinary buttons along the bottom.
+
+## The airplane-mode test — and why "the sync part works" wasn't the same as "syncing works"
+
+The plan for sync had been checked carefully: sending the same message twice doesn't duplicate anything, two people editing different fields merge cleanly, a delete beats an old edit. All true, all tested against the real server. But every one of those checks used scripts that sent hand-made records. The first time the real app, on a real phone, tried to send a real inspection, the server refused it — because the inspection said "I was made from the template called `roof-inspection-v1`", and the server's form for that field only accepts a long unique code (a UUID), and had never been told these templates existed at all. Two small gaps, each invisible until the whole chain ran end to end.
+
+The lesson is the one that keeps recurring: a check on the parts isn't a check on the whole. The fix gives each template a permanent unique code, puts the same two templates on the server, and adds a test that fails if the app's list and the server's list ever stop matching.
+
+**Also: pressing "cancel" on the camera used to save a fake photo.** Backing out of the camera looked, to the code, the same as "something went wrong", and the code's answer to "something went wrong" was to save a pretend picture. Now backing out does nothing, and a real failure says so.

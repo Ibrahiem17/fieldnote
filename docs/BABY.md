@@ -1549,3 +1549,25 @@ Before: any failure other than "permission denied" saved `{ latitude: 12.34, lon
 
 ### `eas.json`, `app.json` — getting the app onto a phone
 `"buildType": "apk"` — an APK is a file you can install straight from a cable; the default type (AAB) can only be given to the Play Store. `"package": "com.ibrahiem17.fieldnote"` — the app's permanent unique name on Android. `"SENTRY_DISABLE_AUTO_UPLOAD": "true"` — skip a step that needs an account we don't have yet.
+
+### `src/db/templateDefs.ts` — `dbId` (D-038)
+`dbId: string;` — a new field on every template: its permanent database identity, a UUID (a long random-looking code like `dfc5b06c-4463-…` that is guaranteed unique). The old `id: "roof-inspection-v1"` is a readable nickname; a database column that expects a UUID rejects a nickname outright, which is exactly the error the phone showed.
+`id: t.dbId,` (in `seed.ts`) — when the app puts a template into the local database, use the UUID, not the nickname. `mockStore.ts` does the same so the web preview behaves like the real thing.
+
+### `supabase/migrations/20260920000001_seed_templates.sql`
+`insert into public.templates (...) values (...)` — put a row in the server's templates table. `$tmpl$ ... $tmpl$` — a "dollar quote": lets the JSON text contain quote marks without escaping each one. `on conflict (id) do nothing` — if that UUID is already there, skip it; so running it twice does no harm.
+
+### `src/db/templateDefs.test.ts`
+`expect(t.dbId).toMatch(UUID)` — assert the id looks like a UUID (`UUID` is a pattern of 8-4-4-4-12 hex characters). `expect(migration).toContain(...)` — read the SQL file as text and assert it contains each template's id and exact JSON, so the app and the server can't quietly disagree again.
+
+### `FormRenderer.tsx` (photo)
+`if (!res) return;` — `null` means "the person backed out of the camera": do nothing. `if (res.error) { Alert.alert(...); return; }` — a real failure: say so, save nothing. The old code made a pretend photo in both cases.
+
+### `src/app/(tabs)/settings.tsx` — the dev "Create test project" button (D-039)
+`const { createProject } = await import("@/repositories/projects");` — load the repository function only when the button is pressed (`import(...)` as a function = "fetch this file now", the same trick used for the camera and location code).
+`await createProject({ name: ..., clientName: "Device Test", address: "1 Test Street" })` — the same function a real "new project" screen would call. It saves the project AND adds a note to the outbox (the to-send list) in one step, which is what makes it sync.
+`new Date().toLocaleTimeString()` — the current time as text, put in the name so each test project is easy to tell apart.
+`${TEMPLATE_DEFS.length} templates` — a backtick string (`` ` ``) lets `${...}` drop a live value into text; the dialog used to say a hard-coded "3" while only 2 templates existed.
+
+### `src/lib/reportHtml.test.ts`
+`function makeData(overrides = {})` — builds a fake report with sensible defaults; each test overrides only what it cares about (`...overrides` copies extra fields over the defaults). `expect(html).toContain("Not recorded")` — assert the text appears in the output. `expect(html).not.toContain("<script>alert")` — assert dangerous text does NOT appear raw. `toMatch(/class="field-value not-recorded">Not recorded</)` — assert against a pattern (a regular expression) rather than an exact string.

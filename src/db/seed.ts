@@ -100,7 +100,7 @@ export async function resetAndReseed(): Promise<{
   }));
 
   const seededTemplates = TEMPLATE_DEFS.map((t) => ({
-    id: t.id ?? newId(),
+    id: t.dbId,
     createdAt: daysAgo(90),
     updatedAt: daysAgo(90),
     deletedAt: null,

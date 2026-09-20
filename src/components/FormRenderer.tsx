@@ -196,21 +196,18 @@ const FieldComponent = React.memo(function FieldComponent(props: {
                   return;
                 }
 
-                if (!res || (res as any).error) {
-                  // fallback to placeholder behaviour when native packages missing
-                  const att = await createAttachment({
-                    inspectionId,
-                    fieldKey: field.key,
-                    localUri: "file:///placeholder.jpg",
-                    mimeType: "image/jpeg",
-                    byteSize: 12345,
-                    width: 800,
-                    height: 600,
-                  });
-                  setAttachments((prev) => ({
-                    ...prev,
-                    [field.key]: (prev[field.key] ?? []).concat(att),
-                  }));
+                // null = the person cancelled the camera: do nothing.
+                if (!res) return;
+
+                if ((res as any).error) {
+                  // Never save a fake photo. The old code created a
+                  // "placeholder.jpg" attachment here — for a cancel AND for
+                  // a real failure — which sync would later try to upload
+                  // (docs/DESIGN.md D-038).
+                  Alert.alert(
+                    "Couldn't take photo",
+                    "The camera couldn't be opened. Nothing was saved — please try again.",
+                  );
                   return;
                 }
 

@@ -86,7 +86,7 @@ function seedTemplates(): Template[] {
   // which crashed FormRenderer.tsx the moment an inspection was opened in
   // the web preview).
   return TEMPLATE_DEFS.map((t) => ({
-    id: `mock-template-${t.id}`,
+    id: t.dbId,
     createdAt: daysAgo(60),
     updatedAt: daysAgo(60),
     deletedAt: null,

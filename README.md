@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS%20%7C%20Web-blue)
 ![Expo SDK](https://img.shields.io/badge/Expo%20SDK-57-000020?logo=expo)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-22%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-36%20passing-brightgreen)
 ![CI](https://github.com/Ibrahiem17/fieldnote/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -39,7 +39,7 @@ Built by **Muhammad Ibrahiem** ([ZYNVEX-CERT-1271](https://github.com/Ibrahiem17
 | --- | --- | --- |
 | 1 | Foundation, navigation, offline SQLite data layer | Code-complete. Real-device verification began after Phase 4 (see `docs/TEST-RESULTS-DEVICE.md`) ([`TEST-RESULTS-PHASE-1.md`](docs/TEST-RESULTS-PHASE-1.md)). |
 | 2 | Dynamic form engine, field types, camera, GPS | Code-complete. Six of ten planned field types shipped; the rest, plus a third proof-of-generality template, were never built ([`TEST-RESULTS-PHASE-2.md`](docs/TEST-RESULTS-PHASE-2.md)). |
-| 3 | Supabase sync engine, auth, RLS, conflict resolution, background upload | Complete and **live-verified against a real Supabase project** — 15/35 test cases, including all three the plan names as proving it worked ([`TEST-RESULTS-PHASE-3.md`](docs/TEST-RESULTS-PHASE-3.md), [`SYNC.md`](docs/SYNC.md)). |
+| 3 | Supabase sync engine, auth, RLS, conflict resolution, background upload | Complete and **live-verified against a real Supabase project** — 15/35 test cases, including all three the plan names as proving it worked (by scripts pushing hand-made rows; the real app-to-server path was first exercised on a phone after Phase 4 and found two gaps — see `docs/DESIGN.md` D-038) ([`TEST-RESULTS-PHASE-3.md`](docs/TEST-RESULTS-PHASE-3.md), [`SYNC.md`](docs/SYNC.md)). |
 | 4 | PDF reports, performance, animation, accessibility, tests, CI, release | Complete, with an honest split: automated tests and CI are real and live-verified; PDF/sharing/performance/release need a device or an external account this environment never had ([`TEST-RESULTS-PHASE-4.md`](docs/TEST-RESULTS-PHASE-4.md)). |
 
 ## Why it's interesting
@@ -48,7 +48,7 @@ Built by **Muhammad Ibrahiem** ([ZYNVEX-CERT-1271](https://github.com/Ibrahiem17
 - **Field-level conflict resolution with an explicit, tested policy** — different fields merge silently; the same field within a 60-second window is flagged for a person to decide; a delete always beats an older edit. `resolveConflict` is a pure function with 7 unit tests, one of which is a deliberately-broken-then-fixed proof that the tests actually catch a real regression.
 - **Schema-driven forms** — a template is plain JSON; the form engine, validation, and conditional-field visibility all derive from it. Two real templates exist; a genuinely new one was never authored as proof the engine needs zero code changes to support it — named honestly as an open item, not glossed over.
 - **Background photo uploads on-device**, with a three-step atomic-per-attempt sequence (row → file bytes → `remote_url` follow-up) so a killed app mid-upload retries cleanly instead of leaving a lie behind.
-- **A real, currently-green CI pipeline** ([workflow](.github/workflows/ci.yml)) — typecheck, lint, and 22 automated tests on every push, verified live by watching an actual run fail on a deliberate type error and recover.
+- **A real, currently-green CI pipeline** ([workflow](.github/workflows/ci.yml)) — typecheck, lint, and 36 automated tests on every push, verified live by watching an actual run fail on a deliberate type error and recover.
 - **What's deliberately not claimed:** measured performance numbers (Phase 4's own rules require real hardware to produce them honestly — none exists here, so `PERFORMANCE.md` says so instead of inventing any), and a shipped production build (needs a real Expo/Apple/Google account this build session could not create).
 
 ## Tech stack
@@ -103,7 +103,7 @@ Then press `a` for the Android emulator, `i` for iOS simulator (macOS only), or 
 | `npm run web:coi` | Web preview through a proxy adding the headers `expo-sqlite` web needs |
 | `npm run typecheck` | `tsc --noEmit` — must pass with zero errors before any commit |
 | `npm run lint` | ESLint over the whole project |
-| `npm test` | Jest — 22 tests, conflict resolution / backoff / validation / one repository integration test |
+| `npm test` | Jest — 36 tests: conflict resolution, backoff, validation, template ids, report HTML, one repository integration test |
 | `npm run db:generate` | Generate a new Drizzle migration after editing `src/db/schema.ts` |
 
 ## Project structure
@@ -199,6 +199,8 @@ Being honest about these is the point, not an afterthought — a documented limi
 
 - **No production build exists, and no install link exists.** `eas build` needs a real Expo account login and real Apple/Google signing credentials — none of which an autonomous build session can create on its own. `eas.json` and the version/build numbers a real build needs are in place; the build itself has never been run.
 - **A physical device was only available after all four phases were built.** A Samsung A51 (Android 13) was first attached after Phase 4; the results are in [`docs/TEST-RESULTS-DEVICE.md`](docs/TEST-RESULTS-DEVICE.md). Verified on it so far: install and launch, session and data persistence across force-quit, camera capture and photo size, a real GPS fix, the location-denied path, signature capture, and a deep link with the app running. That first hands-on run found and fixed six real bugs that the web preview and automated tests could not see (see `docs/DESIGN.md` D-033–D-037). **Still not verified on a device:** airplane-mode sync end to end, the PDF report actually rendering and sharing, a deep link with the app fully closed, performance measurement, swipe/pinch gesture feel, and a screen-reader run. Earlier phases' `TEST-RESULTS` files still record those as blocked, because they were written before a device existed.
+- **The app has no screen for creating a project.** `createProject` exists and writes its outbox entry, but nothing in the UI calls it; projects only appear via the dev seed (which writes no outbox entries, so seeded projects and everything inside them can never sync) or a pull from the server. A Settings dev button ("Create test project") exercises the real path for testing. A real "New Project" screen is a product decision that was not made (`docs/DESIGN.md` D-039).
+- **Airplane-mode sync, end to end, is not yet verified.** After the D-038 fixes an app-created project reached Supabase (confirmed in the dashboard); the offline-create-then-reconnect inspection test was started and is pending a repeat.
 - **Photo size is not hard-capped.** Photos are resized to a 1600 px long edge at JPEG quality 0.7, not compressed to a target size; the one photo measured after the fix was about 124 KB, but a very detailed scene could still exceed 300 KB.
 - **GPS uses "balanced" accuracy** (measured about 100 m on the test phone), not high accuracy — adequate for stamping a site, not for sub-10 m needs.
 - **No Sentry account exists**, so crash reporting is installed and wired (`src/lib/sentry.ts`) but has never sent a real report — gated on an unset `EXPO_PUBLIC_SENTRY_DSN`, a deliberate no-op rather than a silent gap.

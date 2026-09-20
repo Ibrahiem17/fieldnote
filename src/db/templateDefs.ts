@@ -14,6 +14,16 @@
 // means there is no second copy left to drift.
 
 export type TemplateDef = {
+  /**
+   * The template's DATABASE primary key — a fixed UUID, identical on every
+   * device and on the server (supabase/migrations/20260920000001_seed_templates.sql
+   * inserts the same rows). Not the same thing as `id` below, which is the
+   * human-readable slug that's part of the template JSON format itself.
+   * inspections.template_id points at THIS value, and on the server that column
+   * is a uuid foreign key — so a slug here made every inspection unsyncable
+   * (docs/DESIGN.md D-038). Never change one once shipped.
+   */
+  dbId: string;
   id: string;
   name: string;
   version: number;
@@ -31,6 +41,7 @@ export type TemplateDef = {
 
 export const TEMPLATE_DEFS: TemplateDef[] = [
   {
+    dbId: "dfc5b06c-4463-4b74-a1b3-e2224b0d4d3b",
     id: "roof-inspection-v1",
     name: "Roof Inspection",
     version: 1,
@@ -91,6 +102,7 @@ export const TEMPLATE_DEFS: TemplateDef[] = [
     },
   },
   {
+    dbId: "faecdc99-0182-45ec-b42e-ba6e07e75ac9",
     id: "equipment-check-v1",
     name: "Equipment Check",
     version: 1,
