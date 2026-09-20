@@ -150,9 +150,10 @@ function ChipPicker({
 }) {
   const theme = useTheme();
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={{ flexDirection: "row", gap: theme.spacing.xs }}>
-        {options.map((opt) => {
+    // Wraps onto new lines (rather than scrolling sideways) so every choice is
+    // visible at once — a clipped chip looks like it isn't there.
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing.xs }}>
+      {options.map((opt) => {
           const active = opt.key === selected;
           return (
             <Pressable
@@ -175,8 +176,7 @@ function ChipPicker({
               </Text>
             </Pressable>
           );
-        })}
-      </View>
-    </ScrollView>
+      })}
+    </View>
   );
 }

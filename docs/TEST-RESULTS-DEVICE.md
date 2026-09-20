@@ -59,3 +59,8 @@ inspections; the plan's protocol wants 5,000).
 | 2026-09-20 | Fresh-install templates (D-040) | **Pass** | Phone gained "Site Safety Walk" (3 templates) with no reseed. |
 | 2026-09-20 | Inspection screen: autosave line, "Finish up", Mark as complete | **Pass (happy path)** | Screen renders without JS errors; Mark as complete → green toast "Marked as complete ✓" and the section switched to Mark as submitted / Reopen. The error path (missing required answer) not yet exercised on the phone. |
 | 2026-09-20 | Settings wording + "Upload now" | **Pass** | "2 waiting to upload" → tap → "Uploaded 2 changes and received 1 update from your account ✓", "Everything is uploaded ✓", outbox 2 → 0. |
+| 2026-09-20 | New Project screen (D-039) | **Pass** | Created "Demo Site" through the real UI; its page opened with "New Inspection for this project". |
+| 2026-09-20 | Third template renders on a device (zero engine changes, D-040) | **Pass (renders)** | Site Safety Walk showed every field type (GPS button, chips, date, number, switch, signature). Capturing values through it not yet done. |
+| 2026-09-20 | Completion-error path | **Pass** | Missing required Hazard level → alert listing "Hazard level — needs an answer" + inline red "Required"; picking High cleared it. |
+| 2026-09-20 | visibleIf on a device | **Pass** | Hazard level High revealed "Describe the hazard" and "Photograph the hazard". |
+| 2026-09-20 | PDF report generation + share sheet | **Pass (generation), layout not inspected** | 29,881-byte valid PDF created in the app cache; Android ChooserActivity opened; no JS errors. The PDF's appearance still needs a human look. |

@@ -6,7 +6,7 @@
 // explain every symbol added in this file).
 
 import React, { useEffect, useRef, useState } from "react";
-import { View, Pressable, Alert, Linking, Image } from "react-native";
+import { View, Pressable, Alert, Linking, Image, Switch } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Text, Input, Button, BusyButton, useToast } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
@@ -223,30 +223,28 @@ const FieldBody = React.memo(function FieldBody(props: {
         />
       );
     case "boolean":
+      // A real switch: the old "Yes"/"No" pill didn't look tappable (a first-time
+      // user has no way to know it's a control).
       return (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing.sm }}>
-          <Text>{field.label}</Text>
-          <Pressable
-            onPress={() => {
-              const next = !Boolean(v);
-              onScheduleSave(field.key, next ? 1 : 0);
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: theme.spacing.sm,
+          }}
+        >
+          <Text style={{ flex: 1 }}>{field.label}</Text>
+          <Switch
+            value={Boolean(v)}
+            onValueChange={(next) => {
+              const stored = next ? 1 : 0;
+              onScheduleSave(field.key, stored);
+              void onImmediateSave(field.key, stored);
             }}
-            // Phase 4, Day 4: this Pressable's own padding is well under
-            // the 44pt minimum touch target — hitSlop extends the TAPPABLE
-            // area outward without changing how big it LOOKS, so it's
-            // easier to hit without redesigning the toggle's visual size.
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="switch"
+            trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
             accessibilityLabel={field.label}
-            accessibilityState={{ checked: Boolean(v) }}
-            style={{
-              padding: theme.spacing.xs,
-              borderRadius: 6,
-              backgroundColor: theme.colors.surface,
-            }}
-          >
-            <Text>{Boolean(v) ? "Yes" : "No"}</Text>
-          </Pressable>
+          />
         </View>
       );
     case "photo":
