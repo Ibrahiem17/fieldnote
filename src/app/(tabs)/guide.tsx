@@ -5,8 +5,9 @@
 // and is always available from the bottom bar. All the words live in
 // src/lib/guideContent.ts; this file only lays them out.
 
+import { useCallback, useRef } from "react";
 import { ScrollView, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import { Screen, Text, TwoToneText, Card, Badge, Button, Rise, Icon } from "@/components";
 import { GUIDE } from "@/lib/guideContent";
@@ -20,9 +21,32 @@ export default function GuideScreen() {
   const router = useRouter();
   const { colors, spacing, cardColors, fonts } = useTheme().design;
 
+  // On the very first launch, when this tab opens by itself, it was seen to end up
+  // scrolled to the bottom with nobody touching it. A guide must always start at its
+  // top, so: start at the top every time the tab is shown, and if the content scrolls
+  // while no finger is dragging it, snap it back. Once the person drags, it is theirs.
+  const scrollRef = useRef<ScrollView>(null);
+  const userDragged = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      userDragged.current = false;
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    }, []),
+  );
+
   return (
     <Screen>
       <ScrollView
+        ref={scrollRef}
+        scrollEventThrottle={16}
+        onScrollBeginDrag={() => {
+          userDragged.current = true;
+        }}
+        onScroll={(e) => {
+          if (!userDragged.current && e.nativeEvent.contentOffset.y > 0) {
+            scrollRef.current?.scrollTo({ y: 0, animated: false });
+          }
+        }}
         contentContainerStyle={{ gap: spacing.md, paddingBottom: spacing.lg }}
         showsVerticalScrollIndicator={false}
       >

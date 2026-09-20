@@ -9,7 +9,7 @@
 
 import Storage from "expo-sqlite/kv-store";
 
-const KEY = "guide_seen_v1";
+const KEY = "guide_seen_v2";
 
 export async function hasSeenGuide(): Promise<boolean> {
   try {
