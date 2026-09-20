@@ -37,3 +37,11 @@ export function formatIsoDateForDisplay(value: string): string {
   const [y, m, d] = value.split("-");
   return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y}`;
 }
+
+/** Today's date as "YYYY-MM-DD" in the phone's own time zone (for a "Today" button). */
+export function todayIso(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}

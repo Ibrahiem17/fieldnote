@@ -23,12 +23,12 @@ import { Text } from "./Text";
 import type { SyncStatus } from "@/db/schema";
 
 const LABELS: Record<SyncStatus, string> = {
-  local: "Not yet synced",
-  pending: "Pending",
-  syncing: "Syncing…",
-  synced: "Synced",
-  failed: "Failed",
-  conflict: "Conflict",
+  local: "Only on this phone",
+  pending: "Waiting to upload",
+  syncing: "Uploading…",
+  synced: "Uploaded ✓",
+  failed: "Couldn't upload",
+  conflict: "Needs your decision",
 };
 
 export function SyncStatusDot({ status }: { status: SyncStatus }) {

@@ -1,4 +1,4 @@
-import { formatDateInput, formatIsoDateForDisplay, isValidIsoDate } from "./dates";
+import { formatDateInput, formatIsoDateForDisplay, isValidIsoDate, todayIso } from "./dates";
 
 describe("formatDateInput (typed entry)", () => {
   it("inserts hyphens as digits are typed", () => {
@@ -49,5 +49,16 @@ describe("formatIsoDateForDisplay", () => {
   it("returns invalid input unchanged rather than inventing a date", () => {
     expect(formatIsoDateForDisplay("nope")).toBe("nope");
     expect(formatIsoDateForDisplay("2026-02-30")).toBe("2026-02-30");
+  });
+});
+
+
+describe("todayIso", () => {
+  it("formats the phone's local date with zero padding", () => {
+    expect(todayIso(new Date(2026, 0, 5))).toBe("2026-01-05");
+    expect(todayIso(new Date(2026, 8, 21, 23, 59))).toBe("2026-09-21");
+  });
+  it("always produces a date the validator accepts", () => {
+    expect(isValidIsoDate(todayIso(new Date(2028, 1, 29)))).toBe(true);
   });
 });

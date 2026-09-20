@@ -1657,3 +1657,19 @@ Before: any failure other than "permission denied" saved `{ latitude: 12.34, lon
 
 ### `src/app/(tabs)/settings.tsx`
 `{__DEV__ ? (...) : null}` — `__DEV__` is `true` only in development builds and `false` in a release build, so the developer tools simply aren't drawn for real users. `function describeSync(result)` builds one readable sentence from the numbers (`uploaded 2 changes and received 1 update from your account`), including singular/plural and the offline case.
+
+### `src/lib/fieldLabel.ts` — marking required questions (D-044)
+`return field.required ? `${base} *` : base;` — a "ternary": if `required` is true give back the label plus " *", otherwise the plain label. `` `${base} *` `` is a template string: the `${...}` drops the value in. `field.label ?? field.key ?? ""` — use the label; if there isn't one, the key; if neither, an empty string (`??` means "if the left side is missing, use the right").
+`(schema.sections ?? []).some((section) => (section.fields ?? []).some((f) => f.required))` — `.some(...)` asks "does at least one item pass this test?"; nested twice: any section that has any field that is required.
+
+### `src/lib/dates.ts` — `todayIso`
+`String(now.getMonth() + 1).padStart(2, "0")` — `getMonth()` counts from 0 (January = 0), so add 1; `padStart(2, "0")` pads with a leading zero to two characters so March is "03", not "3". `now: Date = new Date()` is a default: use today unless a test passes a specific date.
+
+### `src/lib/deleteProject.ts`
+`const inside = await listInspections({ projectId });` — fetch every inspection in this project first. `for (const inspection of inside) { await softDeleteInspection(inspection.id); }` — delete them one at a time, waiting for each (`await` inside a loop = strictly in order, which is what makes the "delete note" for each inspection land in the to-send list *before* the project's own). Then `softDeleteProject(projectId)`. Returns `inside.length` so the screen can say how many went.
+
+### `src/app/projects/new.tsx` — one form, two jobs
+`const { id } = useLocalSearchParams<{ id?: string }>(); const editing = Boolean(id);` — read an optional `id` from the address (`/projects/new?id=…`); `Boolean(id)` is true only if one was given. `useEffect(() => { if (!id) return; getProject(id).then(...) ... }, [id])` — when editing, load the saved project once and fill the three boxes. `if (id) { await updateProject(id, values); router.back(); } else { const project = await createProject(values); router.replace(...) }` — edit goes back to where you came from; create opens the new project's page. `<Stack.Screen options={{ title: editing ? "Edit project" : "New Project" }} />` — sets the header text for this screen. `Keyboard.dismiss()` — closes the on-screen keyboard.
+
+### `src/app/projects/[id].tsx` — edit/delete buttons
+`Alert.alert(title, message, [buttons])` — the phone's built-in confirmation dialog; the message counts the inspections that will go too, with correct singular/plural (`count === 1 ? "inspection" : "inspections"`). `router.push({ pathname: "/projects/new", params: { id } })` — open the form in edit mode for this project.

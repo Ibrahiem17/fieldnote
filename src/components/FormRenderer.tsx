@@ -23,7 +23,8 @@ import SignaturePad from "@/components/SignaturePad";
 import { PhotoViewer } from "@/components/PhotoViewer";
 import { isFieldVisible } from "@/lib/visibility";
 import { parseNumberInput } from "@/lib/numberInput";
-import { formatDateInput } from "@/lib/dates";
+import { formatDateInput, todayIso } from "@/lib/dates";
+import { fieldLabel, hasRequiredFields } from "@/lib/fieldLabel";
 
 type TemplateSchema = {
   id: string;
@@ -132,7 +133,7 @@ const FieldBody = React.memo(function FieldBody(props: {
     case "longtext":
       return (
         <Input
-          label={field.label}
+          label={fieldLabel(field)}
           value={String(v)}
           onChangeText={(t) => onScheduleSave(field.key, t)}
           onBlur={() => onImmediateSave(field.key, v)}
@@ -143,7 +144,7 @@ const FieldBody = React.memo(function FieldBody(props: {
     case "number":
       return (
         <NumberField
-          label={field.label}
+          label={fieldLabel(field)}
           value={value}
           onChange={(n) => onScheduleSave(field.key, n)}
           onCommit={(n) => onImmediateSave(field.key, n)}
@@ -153,15 +154,26 @@ const FieldBody = React.memo(function FieldBody(props: {
       // Stored as the text "YYYY-MM-DD" (see src/lib/dates.ts). Typed, with the
       // hyphens inserted automatically; a native picker needs a new build.
       return (
-        <Input
-          label={field.label}
-          value={String(v)}
-          placeholder="YYYY-MM-DD"
-          keyboardType="number-pad"
-          maxLength={10}
-          onChangeText={(t) => onScheduleSave(field.key, formatDateInput(t))}
-          onBlur={() => onImmediateSave(field.key, v)}
-        />
+        <View style={{ gap: theme.spacing.xs }}>
+          <Input
+            label={fieldLabel(field)}
+            value={String(v)}
+            placeholder="YYYY-MM-DD"
+            keyboardType="number-pad"
+            maxLength={10}
+            onChangeText={(t) => onScheduleSave(field.key, formatDateInput(t))}
+            onBlur={() => onImmediateSave(field.key, v)}
+          />
+          <Button
+            label="Use today's date"
+            variant="secondary"
+            onPress={() => {
+              const today = todayIso();
+              onScheduleSave(field.key, today);
+              void onImmediateSave(field.key, today);
+            }}
+          />
+        </View>
       );
     case "select":
       // Tappable choices, not free text: the stored value must be exactly one
@@ -171,7 +183,7 @@ const FieldBody = React.memo(function FieldBody(props: {
       return (
         <View style={{ gap: theme.spacing.xs }}>
           <Text variant="label" muted>
-            {field.label}
+            {fieldLabel(field)}
           </Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing.xs }}>
             {(field.options ?? []).map((o: { value: string; label: string }) => {
@@ -211,7 +223,7 @@ const FieldBody = React.memo(function FieldBody(props: {
     case "multiselect":
       return (
         <Input
-          label={field.label + " (comma-separated)"}
+          label={fieldLabel(field) + " (comma-separated)"}
           value={Array.isArray(v) ? v.join(", ") : String(v)}
           onChangeText={(t) =>
             onScheduleSave(
@@ -234,7 +246,7 @@ const FieldBody = React.memo(function FieldBody(props: {
             gap: theme.spacing.sm,
           }}
         >
-          <Text style={{ flex: 1 }}>{field.label}</Text>
+          <Text style={{ flex: 1 }}>{fieldLabel(field)}</Text>
           <Switch
             value={Boolean(v)}
             onValueChange={(next) => {
@@ -250,7 +262,7 @@ const FieldBody = React.memo(function FieldBody(props: {
     case "photo":
       return (
         <View style={{ gap: theme.spacing.xs }}>
-          <Text variant="label">{field.label}</Text>
+          <Text variant="label">{fieldLabel(field)}</Text>
           <BusyButton
             label="Add photo"
             busyLabel="Opening camera…"
@@ -381,7 +393,7 @@ const FieldBody = React.memo(function FieldBody(props: {
     case "gps":
       return (
         <View style={{ gap: theme.spacing.xs }}>
-          <Text variant="label">{field.label}</Text>
+          <Text variant="label">{fieldLabel(field)}</Text>
           <BusyButton
             label={isGpsValue(value) ? "Update location" : "Capture location"}
             busyLabel="Getting location…"
@@ -451,7 +463,7 @@ const FieldBody = React.memo(function FieldBody(props: {
     case "signature":
       return (
         <View style={{ gap: theme.spacing.xs }}>
-          <Text variant="label">{field.label}</Text>
+          <Text variant="label">{fieldLabel(field)}</Text>
           <Button
             label={(attachmentsForField ?? []).length > 0 ? "Sign again" : "Add signature"}
             onPress={() => {
@@ -673,6 +685,11 @@ export default function FormRenderer({
 
   return (
     <View style={{ gap: theme.spacing.md }}>
+      {hasRequiredFields(schema) ? (
+        <Text variant="caption" muted>
+          * required
+        </Text>
+      ) : null}
       {schema.sections.map((section) => (
         <View key={section.id} style={{ gap: theme.spacing.sm }}>
           <Text variant="subtitle">{section.title}</Text>

@@ -68,3 +68,7 @@ inspections; the plan's protocol wants 5,000).
 | 2026-09-20 | Photo capture + upload to storage | **Pass (phone side)** | `hazard_photos`: image/jpeg, **162,641 B** (under 300 KB), `synced`, `remote_url` set → the upload path ran. |
 | 2026-09-20 | Signature capture + upload | **Pass (phone side)** | `inspector_signature`: image/png, 91,689 B, `synced`, `remote_url` set. |
 | 2026-09-20 | Server side of the above | **Pending the tester's dashboard check** | Confirm in Supabase: `answers` (5 rows for "Test"), `attachments` (2), and Storage → the attachments bucket (2 files); inspection status `completed`. The assistant cannot read these (RLS; never uses the admin key). |
+| 2026-09-21 | Required markers + "* required" legend | **Pass** | Site Safety Walk shows the legend and "Hazard level *". |
+| 2026-09-21 | "Use today's date" | **Pass** | Filled 2026-09-20 (the phone's date). |
+| 2026-09-21 | Edit project | **Pass** | Prefilled form titled "Edit project"; renamed "Scratch" → "Scratch Renamed", shown on its page. |
+| 2026-09-21 | Delete project | **Pass (UI)** | Confirmation dialog, then "Project deleted" toast and gone from the list (empty throwaway project). Cascade with inspections and its sync to the server: unit-tested only. |
