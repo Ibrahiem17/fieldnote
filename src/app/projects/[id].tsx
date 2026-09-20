@@ -87,15 +87,17 @@ export default function ProjectDetailScreen() {
 
   return (
     <Screen padded={false}>
-      <View style={{ padding: theme.spacing.md, gap: theme.spacing.sm }}>
-        <Text variant="title">{project?.name ?? "…"}</Text>
-        {project?.clientName ? <Text muted>{project.clientName}</Text> : null}
-        {project?.address ? (
-          <Text variant="caption" muted>
-            {project.address}
-          </Text>
-        ) : null}
-        {project?.notes ? <Text>{project.notes}</Text> : null}
+      <View style={{ padding: theme.design.spacing.gutter, gap: theme.spacing.sm }}>
+        <Card tone="primary" enterIndex={0}>
+          <Text variant="title">{project?.name ?? "…"}</Text>
+          {project?.clientName ? <Text muted>{project.clientName}</Text> : null}
+          {project?.address ? (
+            <Text variant="caption" muted>
+              {project.address}
+            </Text>
+          ) : null}
+          {project?.notes ? <Text style={{ marginTop: theme.spacing.xs }}>{project.notes}</Text> : null}
+        </Card>
         <Button
           label="New Inspection for this project"
           onPress={() => router.push({ pathname: "/inspections/new", params: { projectId: id } })}
@@ -141,7 +143,7 @@ export default function ProjectDetailScreen() {
             />
           </View>
         </View>
-        <Text variant="label" muted style={{ marginTop: theme.spacing.sm }}>
+        <Text variant="label" upper muted style={{ marginTop: theme.spacing.sm }}>
           Inspections ({inspectionList.length})
         </Text>
       </View>
@@ -149,10 +151,13 @@ export default function ProjectDetailScreen() {
       <FlashList
         data={inspectionList}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: theme.spacing.md, paddingTop: 0 }}
+        contentContainerStyle={{ paddingHorizontal: theme.design.spacing.gutter, paddingBottom: theme.spacing.md }}
         ItemSeparatorComponent={() => <View style={{ height: theme.spacing.sm }} />}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <Card
+            enterIndex={index}
+            arrow
+            style={{ paddingRight: 76 }}
             onPress={() => router.push(`/inspections/${item.id}`)}
             accessibilityLabel={item.title}
           >

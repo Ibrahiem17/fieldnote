@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 
-import { Screen, Text, Input, Button } from "@/components";
+import { Screen, Text, TwoToneText, Input, Button, Rise } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { useAuth } from "./AuthProvider";
 import { friendlyAuthError } from "./friendlyError";
@@ -56,7 +56,9 @@ export default function LoginScreen() {
   return (
     <Screen>
       <View style={{ gap: theme.spacing.md, justifyContent: "center", flex: 1 }}>
-        <Text variant="title">{mode === "sign-in" ? "Sign in" : "Create your account"}</Text>
+        <Rise index={0}>
+          <TwoToneText size={48}>{mode === "sign-in" ? "Sign in" : "Create your account"}</TwoToneText>
+        </Rise>
         <Text variant="caption" muted>
           Signing in keeps your inspections backed up to your own account. You need an internet
           connection the first time you sign in; after that Fieldnote works without a signal and
@@ -86,7 +88,7 @@ export default function LoginScreen() {
           </Text>
         ) : null}
         {info ? (
-          <Text variant="caption" style={{ color: theme.colors.success }}>
+          <Text variant="caption" style={{ color: theme.design.colors.highlightDeep }}>
             {info}
           </Text>
         ) : null}

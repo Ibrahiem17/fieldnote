@@ -1,13 +1,17 @@
 // src/components/Button.tsx
 //
-// A tappable button with three visual variants. Built on Pressable rather
-// than the old TouchableOpacity, because Pressable is the version React
-// Native now recommends and it gives us per-state styling (pressed/disabled)
-// through a style function instead of manual state tracking.
+// A full pill button (design/DESIGN.md §7): purple for the main action, beige for
+// quiet ones, red for destructive. The label is fixed text, so it's set in
+// uppercase condensed type. Pressing it shrinks it slightly (PressableScale).
+// Small text on the primary button sits on `primaryDeep`, the purple deep enough
+// for white text to pass contrast (5.9:1).
 
-import { ActivityIndicator, Pressable, StyleSheet } from "react-native";
+import { ActivityIndicator } from "react-native";
 
+import { tintedShadow } from "@/theme/design";
 import { useTheme } from "@/theme/ThemeProvider";
+import { Icon, type IconName } from "./Icon";
+import { PressableScale } from "./PressableScale";
 import { Text } from "./Text";
 
 type Variant = "primary" | "secondary" | "danger";
@@ -18,6 +22,8 @@ type ButtonProps = {
   variant?: Variant;
   disabled?: boolean;
   loading?: boolean;
+  /** An optional icon shown before the label. */
+  icon?: IconName;
 };
 
 export function Button({
@@ -26,62 +32,62 @@ export function Button({
   variant = "primary",
   disabled = false,
   loading = false,
+  icon,
 }: ButtonProps) {
   const theme = useTheme();
+  const { colors, radius, spacing, size, textStyles } = theme.design;
 
-  const backgroundFor: Record<Variant, string> = {
-    primary: theme.colors.primary,
-    secondary: theme.colors.surface,
-    danger: theme.colors.danger,
+  const fill: Record<Variant, string> = {
+    primary: colors.primaryDeep,
+    secondary: colors.beige,
+    danger: colors.danger,
   };
-  const textColorFor: Record<Variant, string> = {
-    primary: theme.colors.primaryText,
-    secondary: theme.colors.text,
-    danger: theme.colors.primaryText,
+  const textColor: Record<Variant, string> = {
+    primary: colors.onPrimary,
+    secondary: colors.ink,
+    danger: colors.onPrimary,
   };
 
   const isDisabled = disabled || loading;
 
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       disabled={isDisabled}
-      // Phase 4, Day 4: `label` is already a required prop on every
-      // Button in this app, so a screen reader announcing it costs
-      // nothing new to wire up — it's the one piece of text every call
-      // site already had to supply anyway.
+      // `label` is already a required prop on every Button, so a screen reader
+      // announcing it costs nothing extra.
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
-      // The style prop can take a function: React Native calls it with the
-      // current press/hover state and we return different styles per state.
-      style={({ pressed }) => [
-        styles.base,
+      style={[
         {
-          backgroundColor: backgroundFor[variant],
-          borderRadius: theme.radius.md,
-          paddingVertical: theme.spacing.sm + 4,
-          paddingHorizontal: theme.spacing.md,
-          borderWidth: variant === "secondary" ? 1 : 0,
-          borderColor: theme.colors.border,
-          opacity: isDisabled ? 0.5 : pressed ? 0.8 : 1,
+          minHeight: size.buttonHeight,
+          borderRadius: radius.pill,
+          paddingHorizontal: spacing.lg,
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
+          gap: spacing.sm,
+          backgroundColor: fill[variant],
+          opacity: isDisabled ? 0.55 : 1,
         },
+        variant === "secondary" ? null : tintedShadow(fill[variant], "soft"),
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={textColorFor[variant]} />
+        <ActivityIndicator color={textColor[variant]} />
       ) : (
-        <Text style={{ color: textColorFor[variant] }} variant="label">
-          {label}
-        </Text>
+        <>
+          {icon ? <Icon name={icon} size={20} color={textColor[variant]} /> : null}
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={[textStyles.button, { color: textColor[variant] }]}
+          >
+            {label}
+          </Text>
+        </>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
-
-const styles = StyleSheet.create({
-  base: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});

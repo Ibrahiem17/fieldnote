@@ -21,12 +21,22 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Stack } from "expo-router";
+import { useFonts } from "expo-font";
+import {
+  BarlowCondensed_300Light,
+  BarlowCondensed_500Medium,
+  BarlowCondensed_600SemiBold,
+  BarlowCondensed_700Bold,
+} from "@expo-google-fonts/barlow-condensed";
+import { DMSans_400Regular, DMSans_500Medium, DMSans_700Bold } from "@expo-google-fonts/dm-sans";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
 
 import { db, dbInitError } from "@/db/client";
 import migrations from "../../drizzle/migrations";
 import { ThemeProvider, useTheme } from "@/theme/ThemeProvider";
+import { colors as designColors } from "@/theme/design";
+import { headerOptions, sceneBackground } from "@/theme/navigationOptions";
 import { Text, ToastProvider } from "@/components";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
@@ -42,6 +52,22 @@ import { ensureBuiltInTemplates } from "@/repositories/templates";
 initSentry();
 
 export default function RootLayout() {
+  // The design's fonts (Barlow Condensed headings, DM Sans body) must be ready
+  // before the first screen draws, or text would flash in the system font. If
+  // loading fails we carry on with the system font instead of blocking the app.
+  const [fontsLoaded, fontError] = useFonts({
+    BarlowCondensed_300Light,
+    BarlowCondensed_500Medium,
+    BarlowCondensed_600SemiBold,
+    BarlowCondensed_700Bold,
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_700Bold,
+  });
+  if (!fontsLoaded && !fontError) {
+    return <View style={{ flex: 1, backgroundColor: designColors.bg }} />;
+  }
+
   return (
     // Phase 4, Day 4: every gesture in this app (Gesture Handler's
     // Swipeable, the photo viewer's pinch/pan) needs exactly one
@@ -132,17 +158,23 @@ function AuthGate() {
 }
 
 const AppNavigator = () => (
-  <Stack screenOptions={{ headerShown: false }}>
+  <Stack screenOptions={{ headerShown: false, contentStyle: sceneBackground }}>
     <Stack.Screen name="(tabs)" />
-    <Stack.Screen name="projects/[id]" options={{ headerShown: true, title: "Project" }} />
-    <Stack.Screen name="inspections/[id]" options={{ headerShown: true, title: "Inspection" }} />
+    <Stack.Screen
+      name="projects/[id]"
+      options={{ headerShown: true, title: "Project", ...headerOptions }}
+    />
+    <Stack.Screen
+      name="inspections/[id]"
+      options={{ headerShown: true, title: "Inspection", ...headerOptions }}
+    />
     <Stack.Screen
       name="inspections/new"
-      options={{ headerShown: true, title: "New Inspection", presentation: "modal" }}
+      options={{ headerShown: true, title: "New Inspection", presentation: "modal", ...headerOptions }}
     />
     <Stack.Screen
       name="projects/new"
-      options={{ headerShown: true, title: "New Project", presentation: "modal" }}
+      options={{ headerShown: true, title: "New Project", presentation: "modal", ...headerOptions }}
     />
   </Stack>
 );

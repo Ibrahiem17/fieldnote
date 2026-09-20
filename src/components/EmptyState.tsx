@@ -1,35 +1,33 @@
 // src/components/EmptyState.tsx
 //
-// What a list shows when it has nothing to show. Every list in this app
-// (Projects, Inspections, filtered results) uses this instead of rendering
-// nothing — a blank screen looks broken; an empty state explains itself.
+// What a screen shows when a list is empty (an invitation, not an apology) and,
+// with `children`, when something went wrong ("Something went wrong" + a
+// "Try again" button). The title is a fixed heading, so it's drawn as the
+// two-tone uppercase headline; the message is calm body text.
 
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { useTheme } from "@/theme/ThemeProvider";
-import { Text } from "./Text";
+import { Text, TwoToneText } from "./Text";
 
 type EmptyStateProps = {
   title: string;
   message?: string;
-  /** Phase 4, Day 4: an optional action below the message — this same
-   * component now doubles as the app's error state (title "Something went
-   * wrong", a "Try again" button here) as well as its empty-list state, so
-   * one visual treatment covers both instead of building a second one. */
+  /** An optional action or extra content below the message. */
   children?: ReactNode;
 };
 
 export function EmptyState({ title, message, children }: EmptyStateProps) {
-  const theme = useTheme();
+  const { spacing } = useTheme().design;
 
   return (
-    <View style={[styles.container, { padding: theme.spacing.xl, gap: theme.spacing.md }]}>
-      <Text variant="subtitle" style={styles.center}>
+    <View style={[styles.container, { padding: spacing.xl, gap: spacing.md }]}>
+      <TwoToneText size={30} style={styles.center}>
         {title}
-      </Text>
+      </TwoToneText>
       {message ? (
-        <Text variant="body" muted style={[styles.center, { marginTop: theme.spacing.xs }]}>
+        <Text muted style={[styles.center, { marginTop: spacing.xs }]}>
           {message}
         </Text>
       ) : null}

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 
-import { Screen, Text, Input, Button, Badge, EmptyState, useToast } from "@/components";
+import { Screen, Text, TwoToneText, Input, Button, Badge, EmptyState, useToast } from "@/components";
 import FormRenderer from "@/components/FormRenderer";
 import { useTheme } from "@/theme/ThemeProvider";
 import { getInspection, softDeleteInspection, updateInspection } from "@/repositories/inspections";
@@ -336,7 +336,7 @@ export default function InspectionDetailScreen() {
             borderTopColor: theme.colors.border,
           }}
         >
-          <Text variant="subtitle">Finish up</Text>
+          <TwoToneText size={28}>Finish up</TwoToneText>
 
           {status === "completed" ? (
             <>

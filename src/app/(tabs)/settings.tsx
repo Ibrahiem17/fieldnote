@@ -158,9 +158,7 @@ export default function SettingsScreen() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={{ gap: theme.spacing.md, paddingBottom: theme.spacing.lg }}>
-        <Text variant="title">Settings</Text>
-
-        <Card>
+        <Card tone="primary" enterIndex={0}>
           <Text variant="label" muted>
             Account
           </Text>
@@ -184,7 +182,7 @@ export default function SettingsScreen() {
           />
         </Card>
 
-        <Card>
+        <Card tone="accent" enterIndex={1}>
           <Text variant="label" muted>
             On this phone
           </Text>
@@ -199,7 +197,7 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
-        <Card>
+        <Card enterIndex={2}>
           <Text variant="label" muted>
             Uploading
           </Text>
@@ -306,7 +304,7 @@ export default function SettingsScreen() {
         </Card>
 
         {conflicts.length > 0 ? (
-          <Card>
+          <Card enterIndex={3}>
             <Text variant="label" muted>
               Needs your input ({conflicts.length})
             </Text>
@@ -362,7 +360,7 @@ export default function SettingsScreen() {
         ) : null}
 
         {__DEV__ ? (
-        <Card>
+        <Card enterIndex={4}>
           <Text variant="label" muted>
             Developer tools
           </Text>
@@ -390,7 +388,7 @@ export default function SettingsScreen() {
         </Card>
         ) : null}
 
-        <Card>
+        <Card enterIndex={5}>
           <Text variant="label" muted>
             About
           </Text>

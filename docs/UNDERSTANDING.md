@@ -302,3 +302,14 @@ A form that doesn't say which questions you *must* answer makes you find out by 
 The app promises to send your work to your account whenever you have signal. But it only *checked* at two moments: when signal came back, and when you reopened the app. Make a change while you already had signal and it just sat there until one of those moments — you'd have to press "Upload now" yourself. Now the app quietly glances every fifteen seconds while it's open and online: anything waiting gets sent, usually within a few seconds of you making it. A slim strip at the top of the main screens says what's going on in plain words — "You're offline. 3 changes will upload when you have a signal", or "Uploading 2 changes…" — and disappears when everything has arrived, so it never nags.
 
 **Cleaning up practice data.** While building the app, the phone was filled with 500 pretend inspections. Removing them by reinstalling the app would also have thrown away the real photo and signature from a real test. Instead the app can now tell pretend from real: pretend rows never joined the "to send" list and were never sent, while real work always does and gets sent. So "never sent and not waiting to be sent" is exactly the pretend data — and only that is removed.
+
+
+## A new look — colours, shapes and motion
+
+The app was redrawn from a reference picture, and only the *look* changed: every button, list, form and saved answer works exactly as before. The screens now sit on a warm cream background. Headings use a tall, narrow typeface in capitals, and body text is a friendly rounded one. Buttons are full pills. Cards are big and rounded with soft shadows that take on the card's own colour. On the Projects screen the cards are purple, amber and olive in turn, with softly rippled tops that overlap like a stack. The Inspections screen is purple with a cream sheet that holds a vertical timeline: each inspection is a dot on the line, coloured by its status. The bottom bar is a dark floating pill; the tab you're on widens and names itself.
+
+Things also move now. Buttons and cards shrink a little when you press them and spring back. New lists and cards rise into place one after another. The active tab slides open. If your phone has "reduce motion" turned on, all of that is skipped.
+
+Two promises the design keeps. Capital letters are used only for the app's own fixed words — never for what a person typed, so a project called "Harborview Retail" stays as written. And text is always readable: the reference's colours were too pale for small white text, so the app uses slightly deeper versions where it matters, and an automatic check fails if anyone changes that. The PDF report was deliberately left looking exactly as it did before.
+
+The little pictures on the bottom bar are proper icons from a free open-source set, replacing the emoji that were there.

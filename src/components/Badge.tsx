@@ -1,11 +1,10 @@
 // src/components/Badge.tsx
 //
-// A small coloured pill for showing an inspection's status at a glance in a
-// list row. The colour is decided from a fixed map, not passed in freehand,
-// so every "completed" badge in the app is the same colour without anyone
-// having to remember which hex code that is.
+// A small pill showing an inspection's status. Colour comes from the design's
+// status colours (design/DESIGN.md §1) and the label is ALWAYS shown, so the
+// meaning is never carried by colour alone.
 
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 
 import { useTheme } from "@/theme/ThemeProvider";
 import { Text } from "./Text";
@@ -19,36 +18,22 @@ const LABELS: Record<InspectionStatus, string> = {
 };
 
 export function Badge({ status }: { status: InspectionStatus }) {
-  const theme = useTheme();
-
-  const colorFor: Record<InspectionStatus, string> = {
-    draft: theme.colors.textMuted,
-    in_progress: theme.colors.warning,
-    completed: theme.colors.success,
-    submitted: theme.colors.primary,
-  };
-
-  const color = colorFor[status];
+  const { statusColors, radius, spacing, fonts } = useTheme().design;
+  const { fill, on } = statusColors[status];
 
   return (
     <View
-      style={[
-        styles.pill,
-        {
-          backgroundColor: color + "22", // 22 = ~13% opacity in hex alpha
-          borderRadius: theme.radius.sm,
-          paddingHorizontal: theme.spacing.sm,
-          paddingVertical: 2,
-        },
-      ]}
+      style={{
+        alignSelf: "flex-start",
+        backgroundColor: fill,
+        borderRadius: radius.pill,
+        paddingHorizontal: spacing.sm + 4,
+        paddingVertical: 4,
+      }}
     >
-      <Text variant="caption" style={{ color, fontWeight: theme.fontWeight.semibold }}>
+      <Text upper style={{ color: on, fontFamily: fonts.bodyBold, fontSize: 11, lineHeight: 14 }}>
         {LABELS[status]}
       </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  pill: { alignSelf: "flex-start" },
-});

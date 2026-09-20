@@ -1682,3 +1682,37 @@ Before: any failure other than "permission denied" saved `{ latitude: 12.34, lon
 
 ### `src/db/seed.ts` — `removeSampleData`
 `const queued = new Set((await tx.select({ id: outbox.entityId }).from(outbox)).map((r) => r.id));` — collect the id of everything waiting in the upload queue into a `Set` (a collection with fast "is this in here?" lookups). `const isSample = (row) => row.syncStatus === "local" && !queued.has(row.id);` — a row is sample data only if it's "local" AND not in the queue. `chunk(ids, 100)` splits a long list into groups of 100 so no single delete has too many values. `inArray(answers.inspectionId, ids)` builds "where inspectionId is one of these". Children (answers, attachments) are deleted before their inspections, and projects last, only if no inspection remains inside them.
+
+
+### `src/theme/design.ts` — the design system (D-046)
+`export const palette = { cream: "#F7F3E6", ... }` — every raw colour in one object; nothing else in the app writes a hex colour. `colors` gives those colours *jobs* (`bg` = the page, `surface` = a card, `primaryDeep` = the purple dark enough for white text). `cardColors` says, per card colour, what its fill is, what text colour sits on it (`on`) and what colour its shadow glows (`glow`). `statusColors` maps each inspection status to a pill fill + text colour. `gradients` are lists of colours for a gradient, `gradientDirection` says which way they run (`{ x: 0, y: 0 }` is top-left, `{ x: 1, y: 1 }` bottom-right). `fonts` holds font family names (with custom fonts the weight is baked into the name). `splitTwoTone("Site Safety Walk")` returns `{ light: "Site", bold: "Safety Walk" }` by splitting at the first space. `tintedShadow(color, "card")` builds shadow settings using the card's own colour, not grey; `elevation` is Android's version of a shadow. `motion` holds press scale (0.97), press duration, the spring's stiffness and the stagger delay between items.
+
+### `src/theme/tokens.ts` and `ThemeProvider.tsx`
+`tokens.ts` re-exports the new values under the *old* names (`spacing`, `radius`, `fontSize`, `palettes`) so no screen had to change its imports. `ThemeProvider` builds one fixed light theme object and shares it with `useTheme()`; there is no dark switching any more.
+
+### `src/components/PressableScale.tsx`
+`useSharedValue(1)` — a number Reanimated can animate on the UI thread; here the current scale. `useReducedMotion()` — true when the phone's "reduce motion" setting is on. `useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }))` turns that number into a style. `onPressIn` → `scale.set(withTiming(0.97, { duration: 90 }))` shrinks quickly; `onPressOut` → `scale.set(withSpring(1, ...))` springs back. `.set(...)` is used instead of `scale.value = ...` because the React Compiler's lint rule forbids assigning to a value in render code.
+
+### `src/components/GradientFill.tsx`
+`try { LinearGradient = require("expo-linear-gradient").LinearGradient } catch { LinearGradient = null }` — load the gradient library if this build has it, otherwise remember "not available". If it is, draw `<LinearGradient colors=... start=... end=... />` filling the parent (`StyleSheet.absoluteFill` = stretch to all four edges); if not, draw a plain `View` in the fallback colour so the app still runs.
+
+### `src/components/Text.tsx`
+Variants (`title`, `subtitle`, `body`, `caption`, `label`) pick a font family and size. `upper` is opt-in: `textTransform: "uppercase"` is applied only when the prop is set, so typed text is never shouted. `TextToneContext` is React context — a value any component below can read without it being passed down by hand; `Card` sets it so text inside a coloured card automatically gets the right colour. `TwoToneText` renders one `Text` containing two nested `Text`s: `headingLight` for the first word, `headingBold` for the rest.
+
+### `src/components/Card.tsx`
+Props: `tone` (colour), `arrow` (round arrow button), `wavy` (rippled top), `waveFlip` (start the ripple the other way), `enterIndex` (fade-up entrance, staggered by this number). `isWavy` is true only when `wavy` is set and the tone is a real colour. When wavy, the top corners are square (`borderTopLeftRadius: 0`) and `marginTop: waveHeight - 1` leaves room for the wave strip, which is drawn with `position: "absolute"` at `top: -(waveHeight - 1)` so it sits just above the card. The gradient runs *vertically* for wavy cards so the wave's colour (the gradient's first stop) matches the top of the body exactly. The gloss overlay is skipped when wavy, otherwise the body under the wave is lighter than the wave and a seam shows. The arrow is a 44px circle, `position: "absolute"` top-right, with `pointerEvents="none"` so the whole card stays the tap target. `rise(node)` wraps the finished card in `Rise` when `enterIndex` was given.
+
+### `src/components/WavyEdge.tsx`
+An `Svg` with one `Path`. `d` is the path recipe: `M0 h` move to the bottom-left; `L0 ...` up to the wave's starting height; each `C x1 y1, x2 y2, x y` is a smooth curve (two control points and an end point); `L400 h Z` down to the bottom-right and close the shape. `viewBox` + `preserveAspectRatio="none"` stretch the 400-unit-wide drawing to whatever width the card is.
+
+### `src/components/Icon.tsx`, `Rise.tsx`, `HeaderTitle.tsx`
+`Icon` maps a plain name (`"projects"`) to a Lucide icon component and draws it at a size, colour and stroke width. `Rise` wraps children in `Animated.View entering={FadeInDown.delay(index * 55).duration(...).springify()}` — the `entering` prop plays that animation once when the view first appears; `Math.min(index, 8)` caps the delay so a long list doesn't make the last rows wait. `HeaderTitle` is a tiny component used as a stacked screen's title so it can be uppercase on Android.
+
+### `src/components/FloatingTabBar.tsx`
+`{ state, descriptors, navigation }` are handed in by Expo Router: which tab is active, each tab's options, and how to switch. `useSafeAreaInsets()` gives the phone's bottom inset so the pill clears the gesture bar. For each route: `focused = state.index === index`; `onPress` emits a `tabPress` event first (so the library can cancel it) and then `navigation.navigate(...)`. `tabIcons` maps route names to icon names. `layout={LinearTransition.springify()}` on each tab's wrapper animates the width change with a spring; the label sits in an `Animated.View` with `entering={FadeIn}` / `exiting={FadeOut}`.
+
+### `src/app/(tabs)/inspections.tsx` — the timeline (D-046)
+The root `View` is purple; the list sits in a rounded-top sheet (`borderTopLeftRadius`, `overflow: "hidden"` so the list is clipped to the rounded corners). `TimelineRail` draws a 30px column: a short line above (`transparent` for the first row), a 18px circle with a coloured border, and a line below that fills the row (`flex: 1`, `transparent` for the last row). `TIMELINE_COLOR` maps each status to a colour. `FilterRow` is now chips: translucent white when idle, cream when selected.
+
+### Other edited screens
+`projects/[id].tsx` puts the project's details in a purple `Card tone="primary"`. `settings.tsx` gives every card an `enterIndex` so they rise in order; the first two are purple and amber, and the duplicate body heading is removed. `LoginScreen.tsx` uses `TwoToneText`. `FormRenderer.tsx` draws each section title with `TwoToneText` and wraps each section in `Rise`.

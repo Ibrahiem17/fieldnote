@@ -9,6 +9,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { FlashList } from "@shopify/flash-list";
+import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { Screen, Text, Card, EmptyState, Button, UploadBanner } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
@@ -66,10 +67,23 @@ export default function ProjectsScreen() {
         <FlashList
           data={projectList}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: theme.spacing.md }}
-          ItemSeparatorComponent={() => <View style={{ height: theme.spacing.sm }} />}
-          renderItem={({ item }) => (
+          contentContainerStyle={{ paddingHorizontal: theme.design.spacing.gutter, paddingTop: theme.spacing.sm }}
+          renderItem={({ item, index }) => (
+            // Cards rise in one after another, and each overlaps the bottom of the one
+            // above it (its rippled top edge sits on top), like the design's stacked cards.
+            <Animated.View
+              entering={FadeInDown.delay(Math.min(index, 8) * theme.design.motion.staggerMs)
+                .duration(theme.design.motion.enterMs + 120)
+                .springify()
+                .damping(16)}
+              style={{ marginTop: index === 0 ? 0 : -18 }}
+            >
             <Card
+              tone={theme.design.cardCycle[index % theme.design.cardCycle.length]}
+              wavy
+              waveFlip={index % 2 === 1}
+              arrow
+              style={{ paddingRight: 76, paddingBottom: theme.design.spacing.cardPad + 22 }}
               onPress={() => router.push(`/projects/${item.id}`)}
               accessibilityLabel={item.name}
             >
@@ -85,6 +99,7 @@ export default function ProjectsScreen() {
                 </Text>
               ) : null}
             </Card>
+            </Animated.View>
           )}
           ListEmptyComponent={
             <EmptyState
@@ -108,7 +123,7 @@ export default function ProjectsScreen() {
       )}
 
       <View style={{ padding: theme.spacing.md }}>
-        <Button label="New Project" onPress={() => router.push("/projects/new")} />
+        <Button label="New Project" icon="plus" onPress={() => router.push("/projects/new")} />
       </View>
     </Screen>
   );

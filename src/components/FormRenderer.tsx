@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Pressable, Alert, Linking, Image, Switch } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { Text, Input, Button, BusyButton, useToast } from "@/components";
+import { Text, TwoToneText, Rise, Input, Button, BusyButton, useToast } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { getAnswers, saveAnswer } from "@/repositories/answers";
 import {
@@ -690,9 +690,9 @@ export default function FormRenderer({
           * required
         </Text>
       ) : null}
-      {schema.sections.map((section) => (
-        <View key={section.id} style={{ gap: theme.spacing.sm }}>
-          <Text variant="subtitle">{section.title}</Text>
+      {schema.sections.map((section, sectionIndex) => (
+        <Rise key={section.id} index={sectionIndex} style={{ gap: theme.spacing.sm }}>
+          <TwoToneText size={28}>{section.title}</TwoToneText>
           {section.fields
             .filter((field: any) => isFieldVisible(field, answersMap))
             .map((field: any) => {
@@ -723,7 +723,7 @@ export default function FormRenderer({
                 </Animated.View>
               );
             })}
-        </View>
+        </Rise>
       ))}
 
       <PhotoViewer uri={viewerUri} onClose={() => setViewerUri(null)} />

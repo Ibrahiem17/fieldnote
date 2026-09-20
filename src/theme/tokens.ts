@@ -1,30 +1,36 @@
 // src/theme/tokens.ts
 //
-// Every colour, spacing value and radius the app uses, defined once, here.
-// Nothing outside this file should hardcode a hex colour or a raw pixel gap —
-// components reach for `spacing.md` or `theme.colors.primary`, never "#2563EB"
-// or "16". Change a value here and it changes everywhere at once.
+// Compatibility layer. The design system itself lives in src/theme/design.ts
+// (documented in design/DESIGN.md); this file re-exports it under the names the
+// app's components already use (spacing, radius, fontSize, fontWeight,
+// palettes), so restyling never needed a sweep of every import.
+//
+// The app is LIGHT ONLY (design decision): `palettes.dark` exists solely because
+// the photo viewer draws a light "✕" on its black background.
 
-export const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-} as const;
+import { colors, design, palette } from "./design";
 
+export const spacing = design.spacing;
+
+/** Old names kept (`sm`/`md`/`lg`); `lg` is now the pill radius the chips use. */
 export const radius = {
-  sm: 6,
-  md: 10,
-  lg: 16,
+  sm: design.radius.sm,
+  md: design.radius.md,
+  lg: design.radius.pill,
+  card: design.radius.card,
+  cardLg: design.radius.cardLg,
+  sheet: design.radius.sheet,
+  pill: design.radius.pill,
+  icon: design.radius.icon,
 } as const;
 
+/** Old size scale (xs…xl) for the few places that still read it. */
 export const fontSize = {
   xs: 12,
   sm: 14,
   md: 16,
   lg: 20,
-  xl: 28,
+  xl: 34,
 } as const;
 
 export const fontWeight = {
@@ -34,34 +40,10 @@ export const fontWeight = {
   bold: "700",
 } as const;
 
-// Two full palettes, one per appearance. `useColorScheme()` tells us which
-// one the phone is currently in; the ThemeProvider picks the matching object.
 export const palettes = {
-  light: {
-    bg: "#FFFFFF",
-    surface: "#F9FAFB",
-    text: "#111827",
-    textMuted: "#6B7280",
-    primary: "#2563EB",
-    primaryText: "#FFFFFF",
-    border: "#E5E7EB",
-    danger: "#DC2626",
-    success: "#16A34A",
-    warning: "#D97706",
-  },
-  dark: {
-    bg: "#0B1220",
-    surface: "#111827",
-    text: "#F9FAFB",
-    textMuted: "#9CA3AF",
-    primary: "#60A5FA",
-    primaryText: "#0B1220",
-    border: "#1F2937",
-    danger: "#F87171",
-    success: "#4ADE80",
-    warning: "#FBBF24",
-  },
+  light: colors,
+  dark: { ...colors, bg: palette.ink, text: palette.cream },
 } as const;
 
 export type ColorScheme = keyof typeof palettes;
-export type Palette = (typeof palettes)[ColorScheme];
+export type Palette = typeof colors;

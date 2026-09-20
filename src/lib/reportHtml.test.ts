@@ -125,3 +125,14 @@ describe("buildReportHtml", () => {
     expect(html).not.toContain("<h2>Location</h2>");
   });
 });
+
+// The PDF must not change when the app is restyled (design decision, D-046):
+// it reads its own frozen palette, never the app's live theme.
+describe("report styling is frozen", () => {
+  it("still uses the original blue, not the app's new purple", async () => {
+    const html = await buildReportHtml(makeData());
+    expect(html).toContain("#2563EB"); // original primary
+    expect(html).not.toContain("#8B63C9"); // the new brand purple
+    expect(html).not.toContain("#F7F3E6"); // the new cream
+  });
+});

@@ -16,14 +16,14 @@
 import type { ReportData } from "./report";
 import { localUriToDataUrl, MAX_INLINE_IMAGES } from "./reportImages";
 import { formatTimestamp } from "./time";
-import { palettes, fontSize, fontWeight } from "@/theme/tokens";
+import { reportPalette, reportFontSize as fontSize, reportFontWeight as fontWeight } from "./reportTheme";
 
 // A report is a document someone else receives — it always renders in one
 // fixed light-on-white style, never the viewing device's dark mode. That's
 // why this reaches for `palettes.light` specifically, not `useTheme()` (a
 // React hook this file, plain string templating with no React import at
 // all, has no business calling).
-const theme = palettes.light;
+const theme = reportPalette;
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",

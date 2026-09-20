@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { Alert, Keyboard, ScrollView } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
-import { Screen, Input, Button, useToast } from "@/components";
+import { Screen, Input, Button, useToast, Rise } from "@/components";
 import { useTheme } from "@/theme/ThemeProvider";
 import { createProject, getProject, updateProject } from "@/repositories/projects";
 
@@ -83,6 +83,7 @@ export default function ProjectFormScreen() {
         contentContainerStyle={{ gap: theme.spacing.md }}
         keyboardShouldPersistTaps="handled"
       >
+        <Rise index={0}>
         <Input
           label="Name"
           value={name}
@@ -94,18 +95,23 @@ export default function ProjectFormScreen() {
           placeholder="e.g. Harborview Retail Fitout"
           autoFocus={!editing}
         />
+        </Rise>
+        <Rise index={1}>
         <Input
           label="Client (optional)"
           value={clientName}
           onChangeText={setClientName}
           placeholder="e.g. Alden Logistics"
         />
+        </Rise>
+        <Rise index={2}>
         <Input
           label="Address (optional)"
           value={address}
           onChangeText={setAddress}
           placeholder="e.g. 12 Industrial Way"
         />
+        </Rise>
 
         <Button
           label={editing ? "Save changes" : "Create Project"}

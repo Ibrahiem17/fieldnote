@@ -5,13 +5,13 @@
 // layer. This is what TC-19 through TC-22 exercise.
 
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { Swipeable } from "react-native-gesture-handler";
 import { useFocusEffect, useRouter } from "expo-router";
 import { FlashList } from "@shopify/flash-list";
 
 import {
-  Screen,
   Text,
   Card,
   Button,
@@ -20,6 +20,8 @@ import {
   SyncStatusDot,
   UploadBanner,
 } from "@/components";
+import { PressableScale } from "@/components/PressableScale";
+import { palette } from "@/theme/design";
 import { useTheme } from "@/theme/ThemeProvider";
 import { listInspections, softDeleteInspection } from "@/repositories/inspections";
 import { listProjects } from "@/repositories/projects";
@@ -104,10 +106,22 @@ export default function InspectionsScreen() {
     return map;
   }, [projectList]);
 
+  const { colors, radius, spacing, motion } = theme.design;
+
   return (
-    <Screen padded={false}>
+    // Full-bleed purple with a light rounded sheet holding a vertical timeline
+    // (design/DESIGN.md §5, "list screens"). The header above is purple too (see
+    // the tabs layout), and the filters are chips sitting on the purple.
+    <View style={{ flex: 1, backgroundColor: colors.primary }}>
       <UploadBanner />
-      <View style={{ padding: theme.spacing.md, gap: theme.spacing.sm }}>
+      <View
+        style={{
+          paddingHorizontal: spacing.gutter,
+          paddingTop: spacing.sm,
+          paddingBottom: spacing.md,
+          gap: spacing.sm,
+        }}
+      >
         <FilterRow
           options={[
             { key: "all", label: "All projects" },
@@ -126,90 +140,143 @@ export default function InspectionsScreen() {
         />
       </View>
 
-      {loading && inspectionList.length === 0 ? (
-        // Phase 4, Day 4: the loading state this screen never had — the
-        // same centered-spinner pattern src/app/_layout.tsx's own
-        // MigrationGate already uses, reused rather than inventing a new
-        // loading treatment for this one screen.
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color={theme.colors.primary} />
-        </View>
-      ) : error ? (
-        <EmptyState title="Something went wrong" message={error}>
-          <Button label="Try again" onPress={() => load()} />
-        </EmptyState>
-      ) : (
-        <FlashList
-          data={inspectionList}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: theme.spacing.md, paddingTop: 0 }}
-          ItemSeparatorComponent={() => <View style={{ height: theme.spacing.sm }} />}
-          renderItem={({ item }) => (
-            // Phase 4, Day 4: Swipeable (react-native-gesture-handler)
-            // reveals this action by dragging the row itself sideways —
-            // `renderRightActions` is called continuously while dragging,
-            // handed the row's own drag progress so the revealed button
-            // can (if wanted) animate in step with the swipe; here it's a
-            // fixed-width button, kept simple.
-            <Swipeable
-              renderRightActions={() => (
-                <Pressable
-                  onPress={() => handleSwipeDelete(item)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Delete ${item.title}`}
-                  style={{
-                    backgroundColor: theme.colors.danger,
-                    justifyContent: "center",
-                    alignItems: "center",
-                    width: 88,
-                    borderRadius: theme.radius.md,
-                  }}
-                >
-                  <Text style={{ color: theme.colors.primaryText }} variant="label">
-                    Delete
-                  </Text>
-                </Pressable>
-              )}
-            >
-              <Card
-                onPress={() => router.push(`/inspections/${item.id}`)}
-                accessibilityLabel={`${item.title}, ${projectNameById.get(item.projectId) ?? "unknown project"}`}
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.surface,
+          borderTopLeftRadius: radius.sheet,
+          borderTopRightRadius: radius.sheet,
+          overflow: "hidden",
+        }}
+      >
+        {loading && inspectionList.length === 0 ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator color={colors.primaryDeep} />
+          </View>
+        ) : error ? (
+          <EmptyState title="Something went wrong" message={error}>
+            <Button label="Try again" onPress={() => load()} />
+          </EmptyState>
+        ) : (
+          <FlashList
+            data={inspectionList}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{
+              paddingHorizontal: spacing.gutter,
+              paddingTop: spacing.lg,
+              paddingBottom: spacing.md,
+            }}
+            renderItem={({ item, index }) => (
+              // Rows rise in one after another. Swipeable reveals Delete by dragging the
+              // row sideways (unchanged behaviour).
+              <Animated.View
+                entering={FadeInDown.delay(Math.min(index, 8) * motion.staggerMs)
+                  .duration(motion.enterMs + 120)
+                  .springify()
+                  .damping(16)}
               >
-                <View style={styles.rowTop}>
-                  <Text variant="subtitle" style={{ flex: 1 }} numberOfLines={2}>
-                    {item.title}
-                  </Text>
-                  <Badge status={item.status} />
-                </View>
-                <Text muted variant="caption" style={{ marginTop: theme.spacing.xs }}>
-                  {projectNameById.get(item.projectId) ?? "Unknown project"}
-                </Text>
-                <Text muted variant="caption">
-                  Updated {formatTimestamp(item.updatedAt)}
-                </Text>
-                <View style={{ marginTop: theme.spacing.xs }}>
-                  <SyncStatusDot status={item.syncStatus} />
-                </View>
-              </Card>
-            </Swipeable>
-          )}
-          ListEmptyComponent={
-            <EmptyState
-              title="No inspections"
-              message={
-                projectFilter !== "all" || statusFilter !== "all"
-                  ? "Nothing matches these filters."
-                  : "Tap New Inspection below to start your first one."
-              }
-            />
-          }
-        />
-      )}
+                <Swipeable
+                  renderRightActions={() => (
+                    <Pressable
+                      onPress={() => handleSwipeDelete(item)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${item.title}`}
+                      style={{
+                        backgroundColor: colors.danger,
+                        justifyContent: "center",
+                        alignItems: "center",
+                        width: 88,
+                        marginBottom: spacing.md,
+                        borderRadius: radius.md,
+                      }}
+                    >
+                      <Text style={{ color: colors.onPrimary }} variant="label">
+                        Delete
+                      </Text>
+                    </Pressable>
+                  )}
+                >
+                  <View style={{ flexDirection: "row", backgroundColor: colors.surface }}>
+                    <TimelineRail
+                      color={TIMELINE_COLOR[item.status]}
+                      first={index === 0}
+                      last={index === inspectionList.length - 1}
+                    />
+                    <View style={{ flex: 1, paddingBottom: spacing.md }}>
+                      <Card
+                        tone="neutral"
+                        arrow
+                        style={{ paddingRight: 76, padding: spacing.md }}
+                        onPress={() => router.push(`/inspections/${item.id}`)}
+                        accessibilityLabel={`${item.title}, ${projectNameById.get(item.projectId) ?? "unknown project"}`}
+                      >
+                        <Text variant="subtitle" numberOfLines={2}>
+                          {item.title}
+                        </Text>
+                        <View style={{ marginTop: spacing.xs }}>
+                          <Badge status={item.status} />
+                        </View>
+                        <Text muted variant="caption" style={{ marginTop: spacing.xs }}>
+                          {projectNameById.get(item.projectId) ?? "Unknown project"}
+                        </Text>
+                        <Text muted variant="caption">
+                          Updated {formatTimestamp(item.updatedAt)}
+                        </Text>
+                        <View style={{ marginTop: spacing.xs }}>
+                          <SyncStatusDot status={item.syncStatus} />
+                        </View>
+                      </Card>
+                    </View>
+                  </View>
+                </Swipeable>
+              </Animated.View>
+            )}
+            ListEmptyComponent={
+              <EmptyState
+                title="No inspections"
+                message={
+                  projectFilter !== "all" || statusFilter !== "all"
+                    ? "Nothing matches these filters."
+                    : "Tap New Inspection below to start your first one."
+                }
+              />
+            }
+          />
+        )}
 
-      <View style={{ padding: theme.spacing.md }}>
-        <Button label="New Inspection" onPress={() => router.push("/inspections/new")} />
+        <View style={{ padding: spacing.gutter, paddingTop: spacing.sm }}>
+          <Button label="New Inspection" icon="plus" onPress={() => router.push("/inspections/new")} />
+        </View>
       </View>
-    </Screen>
+    </View>
+  );
+}
+
+// The timeline's line and dot take the inspection's status colour, so a glance down
+// the list shows where things stand.
+const TIMELINE_COLOR: Record<InspectionStatus, string> = {
+  draft: palette.purpleSoft,
+  in_progress: palette.amber,
+  completed: palette.olive,
+  submitted: palette.purpleDeep,
+};
+
+function TimelineRail({ color, first, last }: { color: string; first: boolean; last: boolean }) {
+  return (
+    <View style={{ width: 30, alignItems: "center" }}>
+      <View style={{ width: 4, height: 22, backgroundColor: first ? "transparent" : color, borderRadius: 2 }} />
+      <View
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: 9,
+          borderWidth: 4,
+          borderColor: color,
+          backgroundColor: palette.sheet,
+        }}
+      />
+      <View style={{ width: 4, flex: 1, backgroundColor: last ? "transparent" : color, borderRadius: 2 }} />
+    </View>
   );
 }
 
@@ -229,36 +296,38 @@ function FilterRow<T extends string>({
   selected: T;
   onSelect: (key: T) => void;
 }) {
-  const theme = useTheme();
+  const { colors, radius, spacing, fonts } = useTheme().design;
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={{ flexDirection: "row", gap: theme.spacing.xs }}>
+      <View style={{ flexDirection: "row", gap: spacing.sm }}>
         {options.map((opt) => {
           const active = opt.key === selected;
           return (
-            <Pressable
+            <PressableScale
               key={opt.key}
               onPress={() => onSelect(opt.key)}
-              hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
               accessibilityRole="button"
               accessibilityLabel={opt.label}
               accessibilityState={{ selected: active }}
               style={{
-                paddingHorizontal: theme.spacing.sm,
-                paddingVertical: theme.spacing.xs,
-                borderRadius: theme.radius.lg,
-                borderWidth: 1,
-                borderColor: active ? theme.colors.primary : theme.colors.border,
-                backgroundColor: active ? theme.colors.primary + "22" : theme.colors.surface,
+                paddingHorizontal: spacing.md,
+                height: 40,
+                justifyContent: "center",
+                borderRadius: radius.pill,
+                backgroundColor: active ? colors.bg : "rgba(255,255,255,0.2)",
               }}
             >
               <Text
-                variant="caption"
-                style={{ color: active ? theme.colors.primary : theme.colors.textMuted }}
+                style={{
+                  fontFamily: fonts.bodyBold,
+                  fontSize: 14,
+                  color: active ? colors.ink : colors.onPrimary,
+                }}
               >
                 {opt.label}
               </Text>
-            </Pressable>
+            </PressableScale>
           );
         })}
       </View>
@@ -266,6 +335,3 @@ function FilterRow<T extends string>({
   );
 }
 
-const styles = StyleSheet.create({
-  rowTop: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-});

@@ -1,9 +1,9 @@
 // src/components/Screen.tsx
 //
-// The outermost wrapper every screen renders inside. It paints the correct
-// background colour for the current theme and keeps content clear of the
-// notch/home-indicator, so individual screens never have to think about
-// either.
+// The outermost wrapper every screen renders inside. It paints the warm cream
+// background and keeps content clear of the notch/status bar, so individual
+// screens never have to think about either. `padded` uses the design's screen
+// gutter (22px) rather than the generic small padding.
 
 import { StyleSheet, View, type ViewProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -16,15 +16,15 @@ type ScreenProps = ViewProps & {
 };
 
 export function Screen({ style, padded = true, children, ...rest }: ScreenProps) {
-  const theme = useTheme();
+  const { colors, spacing } = useTheme().design;
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.bg }]} edges={["top"]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={["top"]}>
       <View
         style={[
           styles.container,
-          { backgroundColor: theme.colors.bg },
-          padded && { padding: theme.spacing.md },
+          { backgroundColor: colors.bg },
+          padded && { padding: spacing.gutter },
           style,
         ]}
         {...rest}

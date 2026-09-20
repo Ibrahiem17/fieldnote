@@ -5,51 +5,44 @@
 // leaves it out of the URL, so `index.tsx` inside here is still just "/".
 
 import { Tabs } from "expo-router";
-import { Text, type ColorValue } from "react-native";
 
-import { useTheme } from "@/theme/ThemeProvider";
+import { FloatingTabBar } from "@/components/FloatingTabBar";
+import { headerOptions, sceneBackground } from "@/theme/navigationOptions";
+import { palette } from "@/theme/design";
+
+// Tab headers already uppercase their titles (and the Inspections one is white on
+// purple), so they skip the custom stacked-screen title component.
+const { headerTitle: _stackTitle, ...tabHeaderOptions } = headerOptions;
 
 export default function TabsLayout() {
-  const theme = useTheme();
-
   return (
     <Tabs
-      screenOptions={{
-        headerStyle: { backgroundColor: theme.colors.bg },
-        headerTitleStyle: { color: theme.colors.text },
-        tabBarStyle: { backgroundColor: theme.colors.bg, borderTopColor: theme.colors.border },
-        tabBarActiveTintColor: theme.colors.primary,
-        tabBarInactiveTintColor: theme.colors.textMuted,
-      }}
+      tabBar={(props) => <FloatingTabBar {...props} />}
+      screenOptions={{ ...tabHeaderOptions, sceneStyle: sceneBackground }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Projects",
-          tabBarIcon: ({ color }) => <TabGlyph glyph="🏗" color={color} />,
         }}
       />
       <Tabs.Screen
         name="inspections"
         options={{
           title: "Inspections",
-          tabBarIcon: ({ color }) => <TabGlyph glyph="📋" color={color} />,
+          // This tab is the full-bleed purple list screen, so its header joins in.
+          headerStyle: { backgroundColor: palette.purple },
+          headerTintColor: palette.white,
+          headerTitleStyle: { ...tabHeaderOptions.headerTitleStyle, color: palette.white },
+          sceneStyle: { backgroundColor: palette.purple },
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color }) => <TabGlyph glyph="⚙️" color={color} />,
         }}
       />
     </Tabs>
   );
-}
-
-// A plain emoji glyph instead of an icon library — Phase 1 scope (1.3.1)
-// doesn't call for one, and pulling in an icon set for three tabs would be
-// a dependency earning its place later, not now.
-function TabGlyph({ glyph, color }: { glyph: string; color: ColorValue }) {
-  return <Text style={{ fontSize: 18, color }}>{glyph}</Text>;
 }

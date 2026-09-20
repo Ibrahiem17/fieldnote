@@ -8,7 +8,7 @@
 // to know their work was safe.
 
 import { useEffect, useState } from "react";
-import { Pressable } from "react-native";
+import { Pressable, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useNetInfo } from "@react-native-community/netinfo";
 
@@ -48,23 +48,34 @@ export function UploadBanner() {
   if (!message) return null;
 
   const problem = message.tone === "problem";
+  const { colors, radius, spacing } = theme.design;
+  // Olive pill for "all fine, just waiting" (the design's highlight banner);
+  // a light pill with a red dot when something needs attention.
+  const fill = problem ? colors.surface : colors.highlightDeep;
+  const ink = problem ? colors.danger : colors.onHighlight;
   return (
     <Pressable
       onPress={() => router.push("/settings")}
       accessibilityRole="button"
       accessibilityLabel={message.text}
       style={{
-        marginHorizontal: theme.spacing.md,
-        marginTop: theme.spacing.sm,
-        paddingHorizontal: theme.spacing.md,
-        paddingVertical: theme.spacing.sm,
-        borderRadius: theme.radius.md,
-        borderWidth: 1,
-        borderColor: problem ? theme.colors.danger : theme.colors.border,
-        backgroundColor: theme.colors.surface,
+        marginHorizontal: spacing.gutter,
+        marginTop: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm + 2,
+        borderRadius: radius.pill,
+        borderWidth: problem ? 1 : 0,
+        borderColor: colors.danger,
+        backgroundColor: fill,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.sm,
       }}
     >
-      <Text variant="caption" style={{ color: problem ? theme.colors.danger : theme.colors.textMuted }}>
+      {problem ? (
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.notification }} />
+      ) : null}
+      <Text variant="caption" style={{ color: ink, flexShrink: 1 }}>
         {message.text}
       </Text>
     </Pressable>
