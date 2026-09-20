@@ -15,10 +15,17 @@ Built by **Muhammad Ibrahiem** ([ZYNVEX-CERT-1271](https://github.com/Ibrahiem17
 
 **Install (Android):** a production APK is built with EAS — download it from the repository's Releases page and open it on the phone (allow "install unknown apps" once). The app opens with a built-in **How to use** tab that explains what Fieldnote is and how to use it. What is and isn't ready for the app stores is in [`docs/RELEASE.md`](docs/RELEASE.md).
 
+## In simple words
+
+Fieldnote is a phone app that replaces the paper checklist a person carries when they check a place — a roof, a machine, a building site. They answer the checklist on the phone, take photos, mark where they are, sign with a finger, and press one button to make a PDF report to send.
+
+It works **without internet**. Many sites have no signal, so everything is saved on the phone first. When the phone finds internet again, the app sends the work to the person's own online account by itself, and if the connection drops halfway nothing is lost — it simply tries again. Each person only ever sees their own work. Everything below explains how it is built.
+
 ---
 
 ## Table of contents
 
+- [In simple words](#in-simple-words)
 - [Status](#status)
 - [Why it's interesting](#why-its-interesting)
 - [Tech stack](#tech-stack)
