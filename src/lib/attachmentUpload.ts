@@ -134,11 +134,16 @@ export async function pushAndUploadAttachment(entry: OutboxEntry): Promise<PushR
   // (supabase/migrations/20260914000002_attachment_storage.sql) — every
   // object lives under `{owner_id}/...`, so RLS can read ownership straight
   // out of the path with no owner_id column on storage.objects at all.
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData.user) {
+  // getSession() reads the stored session; getUser() makes a NETWORK call. With
+  // getUser(), a signal that dropped between the row push above and this line
+  // returned "Not signed in" as a PERMANENT failure and dead-lettered a good
+  // photo (D-042).
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) {
     return { ok: false, retryable: false, error: "Not signed in — cannot upload attachment" };
   }
-  const path = `${userData.user.id}/${entry.entityId}${extensionFromMimeType(payload.mimeType)}`;
+  const path = `${userId}/${entry.entityId}${extensionFromMimeType(payload.mimeType)}`;
 
   // Step 4: upload. `upsert: true` is what makes a retried upload safe —
   // see the file header.
@@ -149,7 +154,16 @@ export async function pushAndUploadAttachment(entry: OutboxEntry): Promise<PushR
       upsert: true,
     });
   if (uploadError) {
-    return { ok: false, retryable: true, error: `Upload failed: ${uploadError.message}` };
+    // Storage errors that came from the server carry an HTTP status; one
+    // without means the request never got an answer (no signal).
+    const status = (uploadError as { status?: number; statusCode?: string | number }).status ??
+      (uploadError as { statusCode?: string | number }).statusCode;
+    return {
+      ok: false,
+      retryable: true,
+      unreachable: status === undefined,
+      error: `Upload failed: ${uploadError.message}`,
+    };
   }
 
   // Step 5: "the file landed, here's remote_url" — a second, small push,

@@ -10,7 +10,19 @@ import { supabase } from "./supabase";
 import type { OutboxEntry } from "@/db/schema";
 
 export type PushResult =
-  { ok: true; duplicate: boolean } | { ok: false; retryable: boolean; error: string };
+  | { ok: true; duplicate: boolean }
+  | {
+      ok: false;
+      retryable: boolean;
+      /**
+       * True when the request never got an answer from the server (no signal,
+       * DNS, timeout). Distinct from "the server said no": it says nothing
+       * about the data, so it must not use up the row's retry budget
+       * (docs/DESIGN.md D-042).
+       */
+      unreachable?: boolean;
+      error: string;
+    };
 
 /**
  * Day 6: the raw RPC call, pulled out of `pushOutboxEntry` below so
@@ -36,7 +48,12 @@ export async function pushRowOnly(
   });
 
   if (error) {
-    return { ok: false, retryable: isRetryable(error), error: error.message };
+    return {
+      ok: false,
+      retryable: isRetryable(error),
+      unreachable: isUnreachable(error),
+      error: error.message,
+    };
   }
 
   return { ok: true, duplicate: Boolean((data as { duplicate?: boolean } | null)?.duplicate) };
@@ -61,6 +78,18 @@ export async function pushOutboxEntry(entry: OutboxEntry): Promise<PushResult> {
   }
 
   return pushRowOnly(entry.id, entry.entityType, entry.entityId, entry.operation, payload);
+}
+
+/**
+ * Did the request fail to reach the server at all? Every error the SERVER
+ * produces carries a code (a Postgres SQLSTATE like "23503", or a PostgREST
+ * "PGRST…" code). A transport failure — no signal, DNS, timeout, aborted
+ * fetch — comes back from supabase-js with an empty code. So "no code" means
+ * we never heard from the server, which says nothing about the row being
+ * pushed (D-042).
+ */
+export function isUnreachable(error: { code?: string | null }): boolean {
+  return !error.code;
 }
 
 /**

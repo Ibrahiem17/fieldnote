@@ -28,6 +28,8 @@ import type { OutboxEntry, SyncStatus } from "@/db/schema";
 export type DrainResult = {
   synced: number;
   failed: number;
+  /** True if the drain stopped early because the server couldn't be reached. */
+  offline?: boolean;
   errors: { entityType: string; entityId: string; error: string }[];
 };
 
@@ -100,13 +102,21 @@ export async function drainOutbox(): Promise<DrainResult> {
         entityId: entry.entityId,
         error: outcome.error,
       });
+      if (outcome.unreachable) {
+        // No signal: every remaining entry would fail the same way. Stop, and
+        // leave them all exactly as they were (D-042).
+        result.offline = true;
+        break;
+      }
     }
   }
 
   return result;
 }
 
-async function pushOne(entry: OutboxEntry): Promise<{ ok: true } | { ok: false; error: string }> {
+async function pushOne(
+  entry: OutboxEntry,
+): Promise<{ ok: true } | { ok: false; error: string; unreachable?: boolean }> {
   const setStatus = setSyncStatusByEntityType[entry.entityType];
 
   // "syncing" — a real, visible state while the request is actually in
@@ -117,6 +127,16 @@ async function pushOne(entry: OutboxEntry): Promise<{ ok: true } | { ok: false; 
 
   const pushFn = pushFnByEntityType[entry.entityType] ?? pushOutboxEntry;
   const pushResult = await pushFn(entry);
+
+  if (!pushResult.ok && pushResult.unreachable) {
+    // We never heard from the server, so this says nothing about the row.
+    // Don't spend one of its attempts, don't record an error, and don't let
+    // it drift toward dead-lettering: put it back exactly as it was. Before
+    // this, ~4 minutes of foreground use with no signal dead-lettered good
+    // data (D-042).
+    if (setStatus) await setStatus(entry.entityId, "pending");
+    return { ok: false, error: pushResult.error, unreachable: true };
+  }
 
   if (!pushResult.ok) {
     const attemptsAfterThis = entry.attempts + 1;

@@ -51,3 +51,6 @@ inspections; the plan's protocol wants 5,000).
 - **Sync of typed answers:** in an inspection, type a text answer in several pauses, then Sync Now — the answer must appear in Supabase → answers (the D-041 data-loss bug).
 - Number fields: type `3.3` (the dot must stay) and clear the box (it must not become 0).
 - Site Safety Walk: Walk date auto-hyphens; an impossible date (e.g. 2026-02-30) is refused on save; Site location and Inspector signature are reachable; setting Hazard level to High reveals the hazard photo field.
+
+- **Offline behaviour (D-042):** with airplane mode on, open and close the app several times over a few minutes, then check Settings → Sync: **pending** should stay at the number of queued items and **failed** must stay **0** (before the fix, ~8 foreground events dead-lettered everything). Turn airplane mode off → items should send once and reach Supabase.
+- Take a photo while online, then drop the signal mid-sync: the photo should stay pending, not become "Not signed in".

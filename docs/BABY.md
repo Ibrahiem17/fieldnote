@@ -1615,3 +1615,18 @@ Before: any failure other than "permission denied" saved `{ latitude: 12.34, lon
 
 ### `src/lib/visibility.ts`
 `rule.in !== undefined && !(Boolean(other) && rule.in.includes(other))` — if the rule has an `in` list, and the answer is NOT (non-empty AND in the list), the field is hidden (`return false`). `equals` uses `!==` — "not strictly equal", so `1` and `"1"` differ. `isEmpty` treats `undefined`, `null`, `""` and `[]` as "nothing typed", but `0` counts as a real answer.
+
+### `src/lib/syncApi.ts` — telling "no answer" from "no" (D-042)
+`unreachable?: boolean;` — the `?` makes it optional: a failure result may or may not carry this flag. `export function isUnreachable(error: { code?: string | null }): boolean { return !error.code; }` — `!` means "not": true when there's no error code (missing, `null`, or an empty string). Errors that come *from the server* always have a code; one that never got an answer (no signal) doesn't.
+
+### `src/lib/syncEngine.ts` — not spending attempts when offline
+`if (!pushResult.ok && pushResult.unreachable) { ... return { ok: false, ..., unreachable: true }; }` — `&&` means "and": if the push failed AND the reason was "couldn't reach the server", put the row back to "pending" and return early, *before* the code below that counts an attempt and schedules a delay. Returning early is what saves the attempt.
+`if (outcome.unreachable) { result.offline = true; break; }` — `break` leaves the `for` loop immediately: with no signal, trying the remaining entries would only fail the same way.
+`offline?: boolean` on `DrainResult` — an optional yes/no on the result object so callers can tell "stopped because there's no signal" from "finished".
+
+### `src/lib/attachmentUpload.ts`
+`const { data: sessionData } = await supabase.auth.getSession(); const userId = sessionData.session?.user.id;` — read who's signed in from what the phone already stored (no internet needed). `?.` means "if `session` exists, take its `user`, otherwise give `undefined`". The old `getUser()` phoned the server to check, which failed exactly when the signal was poor.
+`unreachable: status === undefined` — `===` is strict equality; a storage error with no HTTP status number never reached the server.
+
+### `src/lib/syncEngine.integration.test.ts`
+`jest.fn()` / `mockPush.mockResolvedValue(...)` — a "mock function" is a stand-in you control: here it plays the network, returning whatever result each test needs. `mockReset()` clears what it has recorded. `expect(mockPush).toHaveBeenCalledTimes(1)` — assert it was called exactly once (proving the second entry wasn't even tried). `for (let i = 0; i < MAX_ATTEMPTS * 3; i++) await drainOutbox();` — run 24 sync attempts back to back to prove none of them dead-letters anything while offline.
